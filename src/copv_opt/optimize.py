@@ -27,6 +27,16 @@ def current_jax_real_dtype():
     return jnp.asarray(0.0).dtype
 
 
+def active_patch_threshold(config: PatchConfig | HybridConfig) -> float:
+    # Treat sub-0.05 mm patches as effectively pruned in summaries/plots.
+    return max(0.05, 0.02 * float(config.max_patch_thickness))
+
+
+def count_active_patches_np(patch_thickness: np.ndarray, config: PatchConfig | HybridConfig) -> int:
+    threshold = active_patch_threshold(config)
+    return int(np.sum(np.asarray(patch_thickness, dtype=np.float64) > threshold))
+
+
 def safe_inverse_sigmoid(x: np.ndarray, lo: float, hi: float) -> np.ndarray:
     span = max(hi - lo, 1e-6)
     scaled = (np.asarray(x, dtype=np.float64) - lo) / span
@@ -904,7 +914,7 @@ def run_hybrid_optimization(
                 "failure_penalty": float(np.asarray(jax.device_get(result["failure_penalty"]))),
                 "friction_penalty": float(np.asarray(jax.device_get(result["friction_penalty"]))),
                 "active_patch_count": int(
-                    np.asarray(jax.device_get(jnp.sum(result["patch_thickness"] > 0.05 * config.max_patch_thickness)))
+                    np.asarray(jax.device_get(jnp.sum(result["patch_thickness"] > active_patch_threshold(config))))
                 )
                 if config.patch_count > 0
                 else 0,

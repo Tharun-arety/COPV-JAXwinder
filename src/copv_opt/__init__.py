@@ -12,6 +12,8 @@ from .config import (
 )
 from .geometry import MeshResult, build_copv_shell, ensure_copv_mesh, mesh_step, read_msh
 from .optimize import (
+    active_patch_threshold,
+    count_active_patches_np,
     hybrid_forward,
     ifp_forward,
     initial_hybrid_params,
@@ -49,6 +51,7 @@ __all__ = [
     "baseline_response",
     "build_copv_fem_state",
     "build_copv_shell",
+    "count_active_patches_np",
     "ensure_copv_mesh",
     "element_strain_stress",
     "estimate_burst_pressure_profile",
@@ -61,6 +64,7 @@ __all__ = [
     "hybrid_forward",
     "ifp_forward",
     "initial_hybrid_params",
+    "active_patch_threshold",
     "make_solve_compliance",
     "mesh_step",
     "patch_forward",

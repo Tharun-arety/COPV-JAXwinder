@@ -69,7 +69,7 @@ if str(SRC) not in sys.path:
 from copv_opt.abaqus_exporter import export_result_to_abaqus
 from copv_opt.config import FailureConfig, FrictionConfig, GeometryConfig, HybridConfig, MaterialConfig, PatchConfig
 from copv_opt.geometry import ensure_copv_mesh
-from copv_opt.optimize import run_hybrid_optimization
+from copv_opt.optimize import count_active_patches_np, run_hybrid_optimization
 from copv_opt.physics import baseline_response, build_copv_fem_state, estimate_burst_pressure_profile, make_solve_compliance
 from copv_opt.visualize import (
     build_hybrid_winding_layout_data,
@@ -347,7 +347,7 @@ def build_summary(
     fi_max_with_margin = float(np.max(np.asarray(hybrid_result["failure_with_margin"])))
     mu_max_required = float(np.asarray(hybrid_result["mu_max_required"]))
     patch_thickness = np.asarray(hybrid_result["patch_thickness"])
-    active_patch_count = int(np.sum(patch_thickness > 0.05 * hybrid_cfg.max_patch_thickness))
+    active_patch_count = count_active_patches_np(patch_thickness, hybrid_cfg)
 
     return {
         "jax_backend": jax.default_backend(),
