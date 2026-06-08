@@ -5,8 +5,13 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
-import jaxopt
 import numpy as np
+from scipy import optimize as scipy_optimize
+
+try:
+    import jaxopt
+except ImportError:
+    jaxopt = None
 
 from .config import FailureConfig, FrictionConfig, GeometryConfig, HybridConfig, IFPConfig, MaterialConfig, PatchConfig, WindingConfig
 from .geometry import copv_meridional_metrics, copv_surface_from_sphi_jax, normalize_jax
@@ -39,6 +44,14 @@ def triangular_basis(targets: jnp.ndarray, control_points: jnp.ndarray) -> jnp.n
     weight_sum = jnp.sum(weights, axis=1, keepdims=True)
     nearest = jax.nn.one_hot(jnp.argmin(dist, axis=1), control_points.shape[0], dtype=targets.dtype)
     return jnp.where(weight_sum > 1e-12, weights / weight_sum, nearest)
+
+
+def cosine_spaced_segment(start: jnp.ndarray, stop: jnp.ndarray, count: int) -> jnp.ndarray:
+    if count <= 1:
+        midpoint = 0.5 * (start + stop)
+        return jnp.asarray([midpoint], dtype=jnp.asarray(start).dtype)
+    samples = jnp.linspace(0.0, 1.0, count, dtype=jnp.asarray(start).dtype)
+    return start + (stop - start) * 0.5 * (1.0 - jnp.cos(jnp.pi * samples))
 
 
 def rectangular_signed_distance(xi: jnp.ndarray, eta: jnp.ndarray, length: float, width: float) -> jnp.ndarray:
@@ -207,7 +220,7 @@ def patch_forward(
 
     base = material.base_thickness
     added = material.ply_thickness * jnp.sum(weights, axis=0)
-    total = jnp.clip(base + added, a_min=base * material.density_floor)
+    total = jnp.clip(base + added, base * material.density_floor)
     c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
     c_add = accumulate_patch_stiffness(weights, fiber_dirs, state["c_mat"], state["surface_normals"])
     c_eff = (
@@ -287,7 +300,7 @@ def ifp_forward(
 
     c_rot = rotate_stiffness_field(state["c_mat"], fiber_dirs, state["surface_normals"])
     base = material.base_thickness
-    total = jnp.clip(base + config.tow_thickness * cover, a_min=base * material.density_floor)
+    total = jnp.clip(base + config.tow_thickness * cover, base * material.density_floor)
     c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
     c_eff = (
         base * c_base
@@ -330,7 +343,7 @@ def winding_forward_angle(
     fiber_dirs = normalize_jax(fiber_dirs)
 
     base = material.base_thickness
-    total = jnp.clip(base + config.band_thickness * jnp.ones_like(rho), a_min=base * material.density_floor)
+    total = jnp.clip(base + config.band_thickness * jnp.ones_like(rho), base * material.density_floor)
     c_rot = rotate_stiffness_field(state["c_mat"], fiber_dirs, state["surface_normals"])
     c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
     c_eff = (base * c_base + config.band_thickness * c_rot) / total[:, None, None, None, None]
@@ -425,6 +438,36 @@ def decode_hybrid_params(raw: jnp.ndarray, config: HybridConfig, geom: GeometryC
     }
 
 
+def hybrid_friction_samples(
+    winding_s_ctrl: jnp.ndarray,
+    winding_angle_ctrl: jnp.ndarray,
+    geom: GeometryConfig,
+    config: HybridConfig,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    _, cap_len, total_len = copv_meridional_metrics(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+    start_s = winding_s_ctrl[0]
+    end_s = winding_s_ctrl[-1]
+    top_stop = jnp.clip(cap_len, start_s, end_s)
+    bottom_start = jnp.clip(cap_len + geom.cylinder_length, start_s, end_s)
+
+    top_samples = cosine_spaced_segment(start_s, top_stop, config.friction_cap_sample_count)
+    cylinder_count = max(int(config.friction_cylinder_sample_count), 2)
+    cylinder_samples = jnp.linspace(top_stop, bottom_start, cylinder_count, dtype=winding_s_ctrl.dtype)
+    bottom_samples = cosine_spaced_segment(bottom_start, end_s, config.friction_cap_sample_count)
+    s_eval = jnp.concatenate([top_samples, cylinder_samples[1:-1], bottom_samples[1:]])
+
+    winding_basis = triangular_basis(s_eval, winding_s_ctrl)
+    winding_angle_eval = winding_basis @ winding_angle_ctrl
+    _, _, _, _, rho_eval = copv_surface_from_sphi_jax(
+        geom.mid_radius,
+        s_eval,
+        jnp.zeros_like(s_eval),
+        geom.cylinder_length,
+        geom.opening_radius,
+    )
+    return s_eval, rho_eval, winding_angle_eval
+
+
 def hybrid_forward(
     raw: jnp.ndarray,
     state: dict[str, Any],
@@ -457,14 +500,13 @@ def hybrid_forward(
     winding_dirs = winding_dirs - jnp.sum(winding_dirs * state["surface_normals"], axis=-1, keepdims=True) * state["surface_normals"]
     winding_dirs = normalize_jax(winding_dirs)
 
-    _, _, _, _, rho_ctrl = copv_surface_from_sphi_jax(
-        geom.mid_radius,
+    friction_s_eval, friction_rho_eval, friction_angle_eval = hybrid_friction_samples(
         winding_s_ctrl,
-        jnp.zeros_like(winding_s_ctrl),
-        geom.cylinder_length,
-        geom.opening_radius,
+        winding_angle_ctrl,
+        geom,
+        config,
     )
-    friction_metrics = friction_penalty(winding_s_ctrl, rho_ctrl, winding_angle_ctrl, friction)
+    friction_metrics = friction_penalty(friction_s_eval, friction_rho_eval, friction_angle_eval, friction)
 
     if config.patch_count > 0:
         centers, e_s, e_phi, _, _ = copv_surface_from_sphi_jax(
@@ -513,10 +555,7 @@ def hybrid_forward(
     base = material.base_thickness
     c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
     winding_stiffness = rotate_stiffness_field(state["c_mat"], winding_dirs, state["surface_normals"])
-    total_thickness = jnp.clip(
-        base + winding_thickness + patch_added_thickness,
-        a_min=base * material.density_floor,
-    )
+    total_thickness = jnp.clip(base + winding_thickness + patch_added_thickness, base * material.density_floor)
     c_eff = (
         base * c_base
         + winding_thickness[:, None, None, None, None] * winding_stiffness
@@ -565,6 +604,8 @@ def hybrid_forward(
         "winding_thickness_ctrl": winding_thickness_ctrl,
         "winding_angle_field": winding_angle,
         "winding_thickness_field": winding_thickness,
+        "friction_s_eval": friction_s_eval,
+        "friction_angle_eval": friction_angle_eval,
         "patch_s": patch_s,
         "patch_phi": patch_phi,
         "patch_alpha": patch_alpha,
@@ -650,26 +691,59 @@ def initial_hybrid_params(config: HybridConfig) -> jnp.ndarray:
 
 
 def run_lbfgs(loss_fn, params0: jnp.ndarray, maxiter: int, tol: float, history_size: int) -> tuple[jnp.ndarray, dict[str, Any]]:
-    solver = jaxopt.LBFGS(
-        fun=loss_fn,
-        maxiter=maxiter,
-        tol=tol,
-        history_size=history_size,
-        implicit_diff=False,
-        jit=True,
-        verbose=False,
+    if jaxopt is not None:
+        solver = jaxopt.LBFGS(
+            fun=loss_fn,
+            maxiter=maxiter,
+            tol=tol,
+            history_size=history_size,
+            implicit_diff=False,
+            jit=True,
+            verbose=False,
+        )
+        out = solver.run(params0)
+        state = out.state
+        info = {
+            "iterations": int(np.asarray(jax.device_get(state.iter_num))),
+            "loss": float(np.asarray(jax.device_get(state.value))),
+            "error": float(np.asarray(jax.device_get(state.error))),
+            "failed_linesearch": bool(np.asarray(jax.device_get(state.failed_linesearch))),
+            "num_fun_eval": int(np.asarray(jax.device_get(state.num_fun_eval))),
+            "num_grad_eval": int(np.asarray(jax.device_get(state.num_grad_eval))),
+        }
+        return out.params, info
+
+    loss_and_grad = jax.jit(jax.value_and_grad(loss_fn))
+
+    def scipy_objective(x: np.ndarray) -> tuple[float, np.ndarray]:
+        params = jnp.asarray(x, dtype=params0.dtype)
+        value, grad = loss_and_grad(params)
+        value_np = float(np.asarray(jax.device_get(value)))
+        grad_np = np.asarray(jax.device_get(grad), dtype=np.float64)
+        return value_np, grad_np
+
+    result = scipy_optimize.minimize(
+        scipy_objective,
+        np.asarray(params0, dtype=np.float64),
+        method="L-BFGS-B",
+        jac=True,
+        options={
+            "maxiter": int(maxiter),
+            "ftol": float(tol),
+            "gtol": float(tol),
+            "maxcor": int(history_size),
+        },
     )
-    out = solver.run(params0)
-    state = out.state
+    grad_norm = float(np.linalg.norm(np.asarray(result.jac, dtype=np.float64), ord=np.inf)) if result.jac is not None else 0.0
     info = {
-        "iterations": int(np.asarray(jax.device_get(state.iter_num))),
-        "loss": float(np.asarray(jax.device_get(state.value))),
-        "error": float(np.asarray(jax.device_get(state.error))),
-        "failed_linesearch": bool(np.asarray(jax.device_get(state.failed_linesearch))),
-        "num_fun_eval": int(np.asarray(jax.device_get(state.num_fun_eval))),
-        "num_grad_eval": int(np.asarray(jax.device_get(state.num_grad_eval))),
+        "iterations": int(result.nit),
+        "loss": float(result.fun),
+        "error": grad_norm,
+        "failed_linesearch": (not bool(result.success)) and ("line search" in str(result.message).lower()),
+        "num_fun_eval": int(result.nfev),
+        "num_grad_eval": int(result.njev),
     }
-    return out.params, info
+    return jnp.asarray(result.x, dtype=params0.dtype), info
 
 
 def run_patch_optimization(

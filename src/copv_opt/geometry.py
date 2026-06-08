@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import cadquery as cq
 import gmsh
 import jax.numpy as jnp
 import meshio
@@ -36,6 +35,11 @@ def build_copv_shell(
     opening_radius: float = 10.0,
 ) -> Path:
     """Build a simple thick-shell COPV solid with polar openings."""
+    try:
+        import cadquery as cq
+    except ImportError as exc:
+        raise RuntimeError("cadquery is required only when rebuilding the STEP geometry.") from exc
+
     inner_radius = outer_radius - thickness
     if inner_radius <= 0.0:
         raise ValueError("thickness must be smaller than outer_radius")

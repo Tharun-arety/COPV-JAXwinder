@@ -34,23 +34,6 @@ from .physics import (
     make_solve_compliance,
     required_friction_coefficient,
 )
-from .visualize import (
-    build_hybrid_winding_layout_data,
-    build_ifp_layout_data,
-    build_patch_layout_data,
-    build_variable_angle_winding_paths,
-    build_winding_layout_data,
-    compare_vtu_side_by_side,
-    load_layout_json,
-    plot_hybrid_winding_paths,
-    render_explicit_manufacturing_layout,
-    render_vtu_interactive,
-    save_explicit_manufacturing_layout_screenshot,
-    save_layout_json,
-    save_vtu_comparison_screenshot,
-    save_vtu_screenshot,
-    write_vtu,
-)
 
 __all__ = [
     "GeometryConfig",
@@ -64,14 +47,8 @@ __all__ = [
     "PatchConfig",
     "WindingConfig",
     "baseline_response",
-    "build_ifp_layout_data",
-    "build_patch_layout_data",
     "build_copv_fem_state",
     "build_copv_shell",
-    "build_hybrid_winding_layout_data",
-    "build_winding_layout_data",
-    "build_variable_angle_winding_paths",
-    "compare_vtu_side_by_side",
     "ensure_copv_mesh",
     "element_strain_stress",
     "estimate_burst_pressure_profile",
@@ -84,23 +61,55 @@ __all__ = [
     "hybrid_forward",
     "ifp_forward",
     "initial_hybrid_params",
-    "load_layout_json",
     "make_solve_compliance",
     "mesh_step",
     "patch_forward",
-    "plot_hybrid_winding_paths",
     "read_msh",
     "required_friction_coefficient",
     "run_hybrid_optimization",
-    "render_explicit_manufacturing_layout",
-    "render_vtu_interactive",
     "run_ifp_optimization",
     "run_patch_optimization",
     "run_winding_angle_sweep",
-    "save_explicit_manufacturing_layout_screenshot",
-    "save_layout_json",
     "winding_forward_angle",
-    "save_vtu_comparison_screenshot",
-    "save_vtu_screenshot",
-    "write_vtu",
 ]
+
+try:
+    from .visualize import (
+        build_hybrid_winding_layout_data,
+        build_ifp_layout_data,
+        build_patch_layout_data,
+        build_variable_angle_winding_paths,
+        build_winding_layout_data,
+        compare_vtu_side_by_side,
+        load_layout_json,
+        plot_hybrid_winding_paths,
+        render_explicit_manufacturing_layout,
+        render_vtu_interactive,
+        save_explicit_manufacturing_layout_screenshot,
+        save_layout_json,
+        save_vtu_comparison_screenshot,
+        save_vtu_screenshot,
+        write_vtu,
+    )
+except ImportError:
+    pass
+else:
+    __all__.extend(
+        [
+            "build_hybrid_winding_layout_data",
+            "build_ifp_layout_data",
+            "build_patch_layout_data",
+            "build_variable_angle_winding_paths",
+            "build_winding_layout_data",
+            "compare_vtu_side_by_side",
+            "load_layout_json",
+            "plot_hybrid_winding_paths",
+            "render_explicit_manufacturing_layout",
+            "render_vtu_interactive",
+            "save_explicit_manufacturing_layout_screenshot",
+            "save_layout_json",
+            "save_vtu_comparison_screenshot",
+            "save_vtu_screenshot",
+            "write_vtu",
+        ]
+    )

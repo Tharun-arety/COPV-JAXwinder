@@ -5,15 +5,18 @@ from dataclasses import dataclass, field
 
 @dataclass
 class MaterialConfig:
-    e_xx: float = 136101.0
-    e_yy: float = 1442.0
-    e_zz: float = 1442.0
-    nu_xy: float = 0.954
-    nu_xz: float = 0.01
-    nu_yz: float = 0.01
-    g_yz: float = 8685.0
-    g_xz: float = 8685.0
-    g_xy: float = 8685.0
+    # Representative 60% fiber-volume T700/E862 UD ply elastic constants
+    # from NASA/TM-2013-216574, Table 2. E3/nu13 are treated as transverse-
+    # isotropic screening assumptions for the current orthotropic solid model.
+    e_xx: float = 139067.0
+    e_yy: float = 7908.0
+    e_zz: float = 7908.0
+    nu_xy: float = 0.257
+    nu_xz: float = 0.257
+    nu_yz: float = 0.30
+    g_yz: float = 2275.0
+    g_xz: float = 3206.0
+    g_xy: float = 3206.0
     base_plies: int = 4
     ply_thickness: float = 0.3
     density_floor: float = 1e-3
@@ -101,8 +104,8 @@ class HybridConfig:
     patch_length: float = 34.0
     patch_width: float = 12.0
     beta_schedule: tuple[float, ...] = (2.0, 6.0, 12.0)
-    lbfgs_maxiter: int = 14
-    lbfgs_tol: float = 1e-3
+    lbfgs_maxiter: int = 200
+    lbfgs_tol: float = 1e-5
     history_size: int = 10
     seed: int = 7
     init_jitter: float = 0.02
@@ -119,6 +122,8 @@ class HybridConfig:
     winding_seed_angle_deg: float = 42.0
     winding_seed_thickness: float = 0.35
     patch_seed_thickness: float = 0.08
+    friction_cap_sample_count: int = 15
+    friction_cylinder_sample_count: int = 9
 
 
 @dataclass
