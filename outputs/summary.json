@@ -1,0 +1,216 @@
+{
+  "jax_backend": "cpu",
+  "mesh": {
+    "nodes": 899,
+    "elements": 2696,
+    "step": "outputs/copv_shell.step",
+    "msh": "outputs/copv_shell.msh",
+    "mesh_hmin": 16.0,
+    "mesh_hmax": 36.0
+  },
+  "baseline": {
+    "strain_energy": 57891.81640625,
+    "mass_metric": 2370563.0,
+    "vtu": "outputs/copv_base.vtu"
+  },
+  "patch_jax": {
+    "history": [
+      {
+        "beta": 2.0,
+        "error": 0.08692825585603714,
+        "failed_linesearch": false,
+        "iterations": 12,
+        "loss": 0.2953600585460663,
+        "mass_metric": 2671703.0,
+        "max_coverage": 2.9455313682556152,
+        "max_overlap_excess": 1.9455313682556152,
+        "num_fun_eval": 26,
+        "num_grad_eval": 26,
+        "objective": 0.29536017775535583,
+        "overlap_penalty": 0.026181917637586594,
+        "repulsion_penalty": 0.0047160908579826355,
+        "strain_energy": 16384.1015625
+      },
+      {
+        "beta": 8.0,
+        "error": 0.08358016610145569,
+        "failed_linesearch": false,
+        "iterations": 12,
+        "loss": 0.2920452952384949,
+        "mass_metric": 2680341.0,
+        "max_coverage": 2.9999964237213135,
+        "max_overlap_excess": 1.9999964237213135,
+        "num_fun_eval": 29,
+        "num_grad_eval": 29,
+        "objective": 0.29204538464546204,
+        "overlap_penalty": 0.026822248473763466,
+        "repulsion_penalty": 0.00471655884757638,
+        "strain_energy": 16175.517578125
+      },
+      {
+        "beta": 16.0,
+        "error": 0.09898968040943146,
+        "failed_linesearch": false,
+        "iterations": 12,
+        "loss": 0.2904963195323944,
+        "mass_metric": 2682197.5,
+        "max_coverage": 3.0,
+        "max_overlap_excess": 2.0,
+        "num_fun_eval": 31,
+        "num_grad_eval": 31,
+        "objective": 0.29049625992774963,
+        "overlap_penalty": 0.026197979226708412,
+        "repulsion_penalty": 0.004711925517767668,
+        "strain_energy": 16102.1298828125
+      }
+    ],
+    "strain_energy": 16102.1298828125,
+    "mass_metric": 2682197.5,
+    "improvement_pct": 72.18582714728205,
+    "vtu": "outputs/copv_patch_jax.vtu"
+  },
+  "ifp_jax": {
+    "history": [
+      {
+        "beta": 2.0,
+        "error": 6055.08984375,
+        "failed_linesearch": false,
+        "iterations": 12,
+        "loss": 33374.24609375,
+        "mass_metric": 2503352.25,
+        "num_fun_eval": 49,
+        "num_grad_eval": 49,
+        "strain_energy": 33374.27734375
+      },
+      {
+        "beta": 8.0,
+        "error": 1334.47900390625,
+        "failed_linesearch": false,
+        "iterations": 12,
+        "loss": 27806.400390625,
+        "mass_metric": 2520898.5,
+        "num_fun_eval": 49,
+        "num_grad_eval": 49,
+        "strain_energy": 27806.392578125
+      },
+      {
+        "beta": 16.0,
+        "error": 5454.1943359375,
+        "failed_linesearch": false,
+        "iterations": 12,
+        "loss": 26665.224609375,
+        "mass_metric": 2523655.5,
+        "num_fun_eval": 85,
+        "num_grad_eval": 85,
+        "strain_energy": 26665.234375
+      }
+    ],
+    "strain_energy": 26665.234375,
+    "mass_metric": 2523655.5,
+    "improvement_pct": 53.939544429078886,
+    "vtu": "outputs/copv_ifp_jax.vtu"
+  },
+  "winding_jax": {
+    "history": [
+      {
+        "angle_deg": 12.0,
+        "mass_metric": 2963203.5,
+        "strain_energy": 27603.685546875
+      },
+      {
+        "angle_deg": 14.866666666666667,
+        "mass_metric": 2963203.5,
+        "strain_energy": 26689.515625
+      },
+      {
+        "angle_deg": 17.733333333333334,
+        "mass_metric": 2963203.5,
+        "strain_energy": 25577.31640625
+      },
+      {
+        "angle_deg": 20.6,
+        "mass_metric": 2963203.5,
+        "strain_energy": 24324.12890625
+      },
+      {
+        "angle_deg": 23.46666666666667,
+        "mass_metric": 2963203.5,
+        "strain_energy": 22964.99609375
+      },
+      {
+        "angle_deg": 26.333333333333336,
+        "mass_metric": 2963203.5,
+        "strain_energy": 21567.951171875
+      },
+      {
+        "angle_deg": 29.2,
+        "mass_metric": 2963203.5,
+        "strain_energy": 20174.087890625
+      },
+      {
+        "angle_deg": 32.06666666666666,
+        "mass_metric": 2963203.5,
+        "strain_energy": 18821.611328125
+      },
+      {
+        "angle_deg": 34.93333333333334,
+        "mass_metric": 2963203.5,
+        "strain_energy": 17543.90625
+      },
+      {
+        "angle_deg": 37.8,
+        "mass_metric": 2963203.5,
+        "strain_energy": 16366.640625
+      },
+      {
+        "angle_deg": 40.66666666666667,
+        "mass_metric": 2963203.5,
+        "strain_energy": 15307.4326171875
+      },
+      {
+        "angle_deg": 43.53333333333333,
+        "mass_metric": 2963203.5,
+        "strain_energy": 14372.63671875
+      },
+      {
+        "angle_deg": 46.4,
+        "mass_metric": 2963203.5,
+        "strain_energy": 13570.33203125
+      },
+      {
+        "angle_deg": 49.266666666666666,
+        "mass_metric": 2963203.5,
+        "strain_energy": 12908.138671875
+      },
+      {
+        "angle_deg": 52.13333333333333,
+        "mass_metric": 2963203.5,
+        "strain_energy": 12382.4033203125
+      },
+      {
+        "angle_deg": 55.0,
+        "mass_metric": 2963203.5,
+        "strain_energy": 11983.7529296875
+      }
+    ],
+    "strain_energy": 11983.7529296875,
+    "mass_metric": 2963203.5,
+    "improvement_pct": 79.29974619280777,
+    "cylinder_angle_deg": 55.0,
+    "vtu": "outputs/copv_winding_jax.vtu"
+  },
+  "visualisations": {
+    "patch_plot": "outputs/copv_patch_projection.png",
+    "ifp_plot": "outputs/copv_ifp_projection.png",
+    "winding_plot": "outputs/copv_winding_paths.png",
+    "patch_layout_json": "outputs/patch_layout.json",
+    "ifp_layout_json": "outputs/ifp_layout.json",
+    "winding_layout_json": "outputs/winding_layout.json",
+    "pyvista_patch_explicit": "outputs/pyvista_patch_explicit_layout.png",
+    "pyvista_ifp_explicit": "outputs/pyvista_ifp_explicit_layout.png",
+    "pyvista_winding_explicit": "outputs/pyvista_winding_explicit_layout.png",
+    "winding_clairaut_radius": 81.91520442889917,
+    "winding_path_count": 8
+  },
+  "comparison_plot": "outputs/strain_energy_vs_mass.png"
+}

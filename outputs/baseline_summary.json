@@ -1,0 +1,14 @@
+{
+  "jax_backend": "cpu",
+  "mesh": {
+    "nodes": 899,
+    "elements": 2696,
+    "step": "outputs/copv_shell.step",
+    "msh": "outputs/copv_shell.msh"
+  },
+  "baseline": {
+    "strain_energy": 57891.86679472957,
+    "mass_metric": 2370562.7170429137,
+    "vtu": "outputs/copv_base.vtu"
+  }
+}
