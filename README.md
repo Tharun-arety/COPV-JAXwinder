@@ -1,6 +1,6 @@
-# copv-optimizer-fw
+# COPV-JAXwinder
 
-This repository is a hybrid COPV design engine for deciding when filament winding alone is sufficient and when localized AFP reinforcement is structurally justified. It sits upstream of detailed process definition: optimize a winding angle/thickness field and sparse AFP patch set on one COPV shell, screen the result against Hashin failure and winding manufacturability limits, then hand the accepted layup to Abaqus for downstream validation.
+COPV-JAXwinder is a mathematically driven, upstream design engine for Composite Overwrapped Pressure Vessels (COPVs). Built entirely in JAX, it replaces manual trial-and-error with gradient-based topology optimization. It co-optimizes continuous filament winding (FW) with discrete Automated Fiber Placement (AFP) patches, embedding differentiable Hashin failure criteria and real-world friction limits directly into the loss function. The output is a mass-minimized, manufacturable composite layout ready for downstream validation in Abaqus and production via TaniqWind Pro.
 
 The workflow is designed to fit teams that already work with detailed winding software and FEA, including a Black Wave GmbH style stack built around TaniqWind Pro and Abaqus. It does not try to replace those tools. It reduces the number of candidates that ever need to reach them.
 
