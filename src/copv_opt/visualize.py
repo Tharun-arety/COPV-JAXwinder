@@ -24,7 +24,7 @@ def _import_pyvista():
 def _build_glass_mandrel(plotter, base_vtu_path: str | Path, color: str = "lightgray", opacity: float = 0.18):
     pv = _import_pyvista()
     base_mesh = pv.read(str(base_vtu_path))
-    surface = base_mesh.extract_surface().triangulate()
+    surface = base_mesh.extract_surface(algorithm="dataset_surface").triangulate()
     plotter.add_mesh(
         surface,
         color=color,
@@ -198,6 +198,42 @@ def save_explicit_manufacturing_layout_screenshot(
     return screenshot_path
 
 
+def render_explicit_manufacturing_layout_image(
+    base_vtu_path: str | Path,
+    curve_points_list: list[np.ndarray] | None = None,
+    patch_polygons: list[np.ndarray] | None = None,
+    curve_color: str = "crimson",
+    curve_colors: list[str] | None = None,
+    tow_radius: float = 1.35,
+    patch_color: str = "steelblue",
+    patch_edge_color: str = "midnightblue",
+    patch_opacity: float = 0.90,
+    mandrel_opacity: float = 0.18,
+    title: str = "Explicit Manufacturing Layout",
+    window_size: tuple[int, int] = (1600, 1200),
+) -> np.ndarray:
+    pv = _import_pyvista()
+    pv.OFF_SCREEN = True
+    plotter = _build_explicit_layout_plotter(
+        base_vtu_path=base_vtu_path,
+        curve_points_list=curve_points_list,
+        patch_polygons=patch_polygons,
+        curve_color=curve_color,
+        curve_colors=curve_colors,
+        tow_radius=tow_radius,
+        patch_color=patch_color,
+        patch_edge_color=patch_edge_color,
+        patch_opacity=patch_opacity,
+        mandrel_opacity=mandrel_opacity,
+        title=title,
+        off_screen=True,
+        window_size=window_size,
+    )
+    image = plotter.screenshot(return_img=True)
+    plotter.close()
+    return np.asarray(image)
+
+
 def _to_serializable(value: Any) -> Any:
     if isinstance(value, np.ndarray):
         return value.tolist()
@@ -351,6 +387,146 @@ def save_vtu_screenshot(
     screenshot_path.parent.mkdir(parents=True, exist_ok=True)
     plotter.show(screenshot=str(screenshot_path), auto_close=True)
     return screenshot_path
+
+
+def render_vtu_scalar_image(
+    vtu_path: str | Path,
+    scalar_field: str = "thickness",
+    scalar_values: np.ndarray | None = None,
+    cmap: str = "plasma",
+    clim: tuple[float, float] | list[float] | None = None,
+    show_edges: bool = False,
+    slice_model: bool = False,
+    clip_normal: str | tuple | list = "y",
+    clip_origin: tuple[float, float, float] | list[float] | None = None,
+    surface_only: bool = True,
+    curve_points_list: list[np.ndarray] | None = None,
+    curve_color: str = "white",
+    curve_colors: list[str] | None = None,
+    curve_radius: float = 1.15,
+    scalar_bar_title: str | None = None,
+    camera_position: str | tuple | list | None = None,
+    camera_zoom: float = 1.15,
+    window_size: tuple[int, int] = (1600, 1200),
+    mesh_opacity: float = 1.0,
+    highlight_threshold: float | None = None,
+    highlight_below: bool = False,
+    highlight_opacity: float = 0.95,
+    marker_points: list[np.ndarray] | None = None,
+    marker_colors: list[str] | None = None,
+    marker_radius: float = 6.0,
+) -> np.ndarray:
+    pv = _import_pyvista()
+    pv.OFF_SCREEN = True
+
+    vtu_path = Path(vtu_path)
+    if not vtu_path.exists():
+        raise FileNotFoundError(f"Cannot find VTU file at {vtu_path}")
+
+    mesh = pv.read(str(vtu_path))
+    if scalar_values is not None:
+        mesh.cell_data[scalar_field] = np.asarray(scalar_values, dtype=np.float64)
+
+    available_scalars = mesh.array_names
+    if scalar_field not in available_scalars:
+        raise ValueError(f"Scalar field '{scalar_field}' not found in {vtu_path}")
+
+    mesh_to_show = mesh
+    if slice_model:
+        try:
+            mesh_to_show = mesh.clip(normal=clip_normal, origin=mesh.center if clip_origin is None else clip_origin)
+        except Exception:
+            mesh_to_show = mesh
+
+    highlight_source = mesh_to_show
+    if surface_only:
+        try:
+            surface = mesh_to_show.extract_surface(algorithm="dataset_surface").triangulate()
+            if scalar_field in surface.array_names:
+                mesh_to_show = surface
+        except Exception:
+            pass
+
+    plotter = pv.Plotter(off_screen=True, window_size=window_size, title=f"COPV Render - {vtu_path.name}")
+    plotter.set_background("white")
+    plotter.add_mesh(
+        mesh_to_show,
+        scalars=scalar_field,
+        cmap=cmap,
+        show_edges=show_edges,
+        edge_color="black",
+        line_width=0.4,
+        lighting=True,
+        smooth_shading=True,
+        clim=clim if clim is not None else mesh_to_show.get_data_range(scalar_field),
+        opacity=float(mesh_opacity),
+    )
+    if highlight_threshold is not None:
+        try:
+            highlight_mesh = highlight_source.threshold(
+                value=float(highlight_threshold),
+                scalars=scalar_field,
+                preference="cell",
+                invert=bool(highlight_below),
+            )
+            if highlight_mesh.n_cells > 0:
+                plotter.add_mesh(
+                    highlight_mesh,
+                    scalars=scalar_field,
+                    cmap=cmap,
+                    show_edges=False,
+                    lighting=True,
+                    smooth_shading=True,
+                    clim=clim if clim is not None else highlight_source.get_data_range(scalar_field),
+                    opacity=float(highlight_opacity),
+                )
+        except Exception:
+            pass
+    if curve_points_list is not None:
+        for idx, points in enumerate(curve_points_list):
+            pts = np.asarray(points, dtype=np.float64)
+            if len(pts) < 2:
+                continue
+            color = curve_colors[idx] if curve_colors is not None and idx < len(curve_colors) else curve_color
+            if len(pts) == 2:
+                spline = pv.Line(pts[0], pts[1])
+            else:
+                spline = pv.Spline(pts, n_points=max(len(pts) * 4, len(pts)))
+            tow = spline.tube(radius=float(curve_radius), capping=True)
+            plotter.add_mesh(
+                tow,
+                color=color,
+                smooth_shading=True,
+                specular=0.35,
+                specular_power=18.0,
+            )
+    if marker_points is not None:
+        for idx, point in enumerate(marker_points):
+            center = np.asarray(point, dtype=np.float64).reshape(3)
+            color = marker_colors[idx] if marker_colors is not None and idx < len(marker_colors) else "crimson"
+            marker = pv.Sphere(radius=float(marker_radius), center=center, theta_resolution=32, phi_resolution=32)
+            plotter.add_mesh(
+                marker,
+                color=color,
+                smooth_shading=True,
+                specular=0.45,
+                specular_power=24.0,
+            )
+    plotter.add_scalar_bar(
+        title=scalar_field.capitalize().replace("_", " ") if scalar_bar_title is None else scalar_bar_title,
+        title_font_size=16,
+        label_font_size=13,
+        color="black",
+        vertical=False,
+        position_y=0.05,
+    )
+    plotter.add_axes()
+    plotter.camera_position = "iso" if camera_position is None else camera_position
+    if camera_zoom != 1.0:
+        plotter.camera.zoom(camera_zoom)
+    image = plotter.screenshot(return_img=True)
+    plotter.close()
+    return np.asarray(image)
 
 
 def compare_vtu_side_by_side(vtu_path_1: str | Path, vtu_path_2: str | Path, scalar_field: str = "displacement_norm"):
@@ -840,6 +1016,19 @@ def build_hybrid_winding_layout_data(
         surface_radius=surface_radius,
         thickness_ctrl=np.asarray(result["winding_thickness_ctrl"]),
     )
+    basis = piecewise_linear_basis_np(np.asarray(winding["sample_s"], dtype=np.float64), np.asarray(winding["control_s"], dtype=np.float64))
+    helical_thickness_profile = None
+    if "helical_thickness_ctrl" in result:
+        helical_thickness_profile = basis @ np.asarray(result["helical_thickness_ctrl"], dtype=np.float64)
+    hoop_thickness_profile = None
+    if "hoop_thickness_ctrl" in result:
+        hoop_thickness_profile = basis @ np.asarray(result["hoop_thickness_ctrl"], dtype=np.float64)
+    helical_pass_profile = None
+    if "helical_pass_ctrl" in result:
+        helical_pass_profile = basis @ np.asarray(result["helical_pass_ctrl"], dtype=np.float64)
+    hoop_pass_profile = None
+    if "hoop_pass_ctrl" in result:
+        hoop_pass_profile = basis @ np.asarray(result["hoop_pass_ctrl"], dtype=np.float64)
     paths = []
     for handedness, points in winding["paths"]:
         paths.append(
@@ -849,7 +1038,7 @@ def build_hybrid_winding_layout_data(
             }
         )
     return {
-        "layout_type": "hybrid_winding",
+        "layout_type": "winding_process",
         "lift": float(lift),
         "surface_radius": float(surface_radius),
         "family_count": int(winding["family_count"]),
@@ -863,9 +1052,37 @@ def build_hybrid_winding_layout_data(
         "thickness_profile": None
         if winding["thickness_profile"] is None
         else np.asarray(winding["thickness_profile"], dtype=np.float64),
+        "helical_thickness_profile": None
+        if helical_thickness_profile is None
+        else np.asarray(helical_thickness_profile, dtype=np.float64),
+        "hoop_thickness_profile": None
+        if hoop_thickness_profile is None
+        else np.asarray(hoop_thickness_profile, dtype=np.float64),
+        "helical_pass_profile": None
+        if helical_pass_profile is None
+        else np.asarray(helical_pass_profile, dtype=np.float64),
+        "hoop_pass_profile": None
+        if hoop_pass_profile is None
+        else np.asarray(hoop_pass_profile, dtype=np.float64),
         "mu_required": np.asarray(winding["mu_required"], dtype=np.float64),
         "paths": paths,
     }
+
+
+def build_winding_process_layout_data(
+    result: dict[str, Any],
+    geom: GeometryConfig,
+    family_count: int = 8,
+    sample_count: int = 260,
+    lift: float = 0.85,
+) -> dict[str, Any]:
+    return build_hybrid_winding_layout_data(
+        result,
+        geom,
+        family_count=family_count,
+        sample_count=sample_count,
+        lift=lift,
+    )
 
 
 def plot_winding_paths(
@@ -917,13 +1134,30 @@ def plot_hybrid_winding_paths(
         if idx == 0:
             guide = path[:: max(1, len(path) // 18)]
             ax.scatter(guide[:, 0], guide[:, 1], guide[:, 2], color="black", s=12, depthshade=False)
-    ax.set_title("Hybrid variable-angle winding paths over the full COPV")
+    ax.set_title("Variable-angle winding paths over the full COPV")
     ax.view_init(20, 36)
     fig.tight_layout()
     if save_path is not None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=115)
     return fig, winding
+
+
+def plot_winding_process_paths(
+    result: dict[str, Any],
+    geom: GeometryConfig,
+    family_count: int = 8,
+    sample_count: int = 260,
+    save_path: Path | None = None,
+) -> tuple[plt.Figure, dict[str, Any]]:
+    # Backward-compatible wrapper used by the winding-first staging scripts.
+    return plot_hybrid_winding_paths(
+        result,
+        geom,
+        family_count=family_count,
+        sample_count=sample_count,
+        save_path=save_path,
+    )
 
 
 def save_tradeoff_plot(path: Path, labels: list[str], masses: list[float], strain_energies: list[float]):

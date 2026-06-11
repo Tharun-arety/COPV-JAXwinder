@@ -221,6 +221,11 @@ def element_strain_stress(
 
 def hashin_failure_indices(local_stress: jnp.ndarray, allowables: MaterialAllowables) -> dict[str, jnp.ndarray]:
     sigma_11 = local_stress[..., 0, 0]
+    # Transverse stress averaged over the isotropic 2-3 plane of the UD ply.
+    # For membrane-dominated loading away from the boss, sigma_33 is typically
+    # small and this collapses back toward the usual 2D Hashin sigma_22 term.
+    # Near the boss under local triaxial constraint this remains a screening
+    # approximation rather than a full 3D progressive-damage treatment.
     sigma_transverse = 0.5 * (local_stress[..., 1, 1] + local_stress[..., 2, 2])
     tau_12 = local_stress[..., 0, 1]
     tau_13 = local_stress[..., 0, 2]
@@ -310,7 +315,14 @@ def evaluate_hashin_failure(
     metrics = hashin_failure_indices(local_stress, failure.allowables)
     failure_with_margin = metrics["failure_index"] * failure.margin_of_safety
     smooth_excess = jax.nn.softplus(failure.softplus_scale * (failure_with_margin - 1.0)) / failure.softplus_scale
-    penalty = failure.penalty_weight * jnp.mean(smooth_excess**2)
+    mean_penalty = jnp.mean(smooth_excess**2)
+    flat_excess = jnp.reshape(smooth_excess, (-1,))
+    tail_fraction = float(np.clip(failure.penalty_tail_fraction, 0.0, 1.0))
+    tail_count = max(1, min(int(np.ceil(tail_fraction * max(int(flat_excess.shape[0]), 1))), int(flat_excess.shape[0])))
+    tail_values = jax.lax.top_k(flat_excess, tail_count)[0]
+    tail_penalty = jnp.mean(tail_values**2)
+    worst_case_mix = float(np.clip(failure.penalty_worst_case_mix, 0.0, 1.0))
+    penalty = failure.penalty_weight * ((1.0 - worst_case_mix) * mean_penalty + worst_case_mix * tail_penalty)
     return {
         **metrics,
         "strain_voigt": strain_voigt,
@@ -321,6 +333,8 @@ def evaluate_hashin_failure(
         "fi_max": jnp.max(metrics["failure_index"]),
         "fi_mean": jnp.mean(metrics["failure_index"]),
         "penalty": penalty,
+        "failure_penalty_mean": mean_penalty,
+        "failure_penalty_tail": tail_penalty,
     }
 
 
@@ -409,6 +423,10 @@ def required_friction_coefficient(
 ) -> jnp.ndarray:
     if s_coords.shape[0] < 2:
         return jnp.zeros((1,), dtype=alpha.dtype)
+    # Deviation from Clairaut's theorem, rho * sin(alpha) = const, requires
+    # lateral friction to hold the tow on the commanded path. A geodesic path
+    # has zero required friction everywhere; values above mu_max are penalized
+    # upstream before the winding layout is accepted for export.
     clairaut = rho * jnp.sin(alpha)
     ds = jnp.maximum(jnp.diff(s_coords), regularization)
     dclairaut_ds = jnp.diff(clairaut) / ds
@@ -439,7 +457,7 @@ def friction_penalty(
     }
 
 
-def make_solve_compliance(state: dict[str, Any], tol: float = 1e-6, maxiter: int = 1200):
+def make_solve_compliance(state: dict[str, Any], tol: float = 1e-6, maxiter: int = 2400):
     n_dof = state["n_dof"]
     elem_dofs = state["elem_dofs"]
     free_dofs = state["free_dofs"]

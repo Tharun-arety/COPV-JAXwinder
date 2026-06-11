@@ -34,7 +34,7 @@ def build_copv_shell(
     thickness: float = 8.0,
     opening_radius: float = 10.0,
 ) -> Path:
-    """Build a simple thick-shell COPV solid with polar openings."""
+    """Build a simple thick-shell COPV solid with hemispherical caps and polar openings."""
     try:
         import cadquery as cq
     except ImportError as exc:
@@ -92,8 +92,12 @@ def read_msh(msh_path: Path, step_path: Path | None = None) -> MeshResult:
 def mesh_step(
     step_path: Path,
     msh_path: Path,
-    hmin: float = 12.0,
+    hmin: float = 10.0,
     hmax: float = 28.0,
+    boss_hmin: float = 4.0,
+    boss_refine_radius: float = 28.0,
+    cylinder_half_len: float | None = None,
+    outer_radius: float | None = None,
 ) -> MeshResult:
     """Mesh a STEP file with gmsh and return the tetrahedral arrays."""
     msh_path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,8 +109,35 @@ def mesh_step(
     gmsh.model.add(step_path.stem)
     gmsh.merge(str(step_path))
     gmsh.model.occ.synchronize()
-    gmsh.option.setNumber("Mesh.CharacteristicLengthMin", hmin)
-    gmsh.option.setNumber("Mesh.CharacteristicLengthMax", hmax)
+    base_hmin = min(float(hmin), float(boss_hmin))
+    gmsh.option.setNumber("Mesh.CharacteristicLengthMin", base_hmin)
+    gmsh.option.setNumber("Mesh.CharacteristicLengthMax", float(hmax))
+
+    if (
+        boss_refine_radius > 0.0
+        and boss_hmin > 0.0
+        and cylinder_half_len is not None
+        and outer_radius is not None
+    ):
+        field = gmsh.model.mesh.field
+        boss_fields: list[int] = []
+        for z_sign in (1.0, -1.0):
+            ball_id = field.add("Ball")
+            field.setNumber(ball_id, "Radius", float(boss_refine_radius))
+            field.setNumber(ball_id, "Thickness", max(0.5 * float(boss_refine_radius), 1e-6))
+            field.setNumber(ball_id, "VIn", float(boss_hmin))
+            field.setNumber(ball_id, "VOut", float(hmax))
+            field.setNumber(ball_id, "XCenter", 0.0)
+            field.setNumber(ball_id, "YCenter", 0.0)
+            field.setNumber(ball_id, "ZCenter", float(z_sign * (cylinder_half_len + outer_radius)))
+            boss_fields.append(ball_id)
+        if len(boss_fields) == 1:
+            field.setAsBackgroundMesh(boss_fields[0])
+        elif boss_fields:
+            min_id = field.add("Min")
+            field.setNumbers(min_id, "FieldsList", boss_fields)
+            field.setAsBackgroundMesh(min_id)
+
     gmsh.model.mesh.generate(3)
     gmsh.write(str(msh_path))
     gmsh.finalize()
@@ -119,8 +150,9 @@ def ensure_copv_mesh(
     msh_path: Path,
     geom: GeometryConfig,
     remesh: bool = False,
+    rebuild_step: bool = False,
 ) -> MeshResult:
-    if remesh or not step_path.exists():
+    if rebuild_step or not step_path.exists():
         build_copv_shell(
             step_path,
             outer_radius=geom.outer_radius,
@@ -128,8 +160,17 @@ def ensure_copv_mesh(
             thickness=geom.thickness,
             opening_radius=geom.opening_radius,
         )
-    if remesh or not msh_path.exists():
-        return mesh_step(step_path, msh_path, hmin=geom.mesh_hmin, hmax=geom.mesh_hmax)
+    if remesh or rebuild_step or not msh_path.exists():
+        return mesh_step(
+            step_path,
+            msh_path,
+            hmin=geom.mesh_hmin,
+            hmax=geom.mesh_hmax,
+            boss_hmin=geom.boss_hmin,
+            boss_refine_radius=geom.boss_refine_radius,
+            cylinder_half_len=geom.half_cyl,
+            outer_radius=geom.outer_radius,
+        )
     return read_msh(msh_path, step_path=step_path)
 
 

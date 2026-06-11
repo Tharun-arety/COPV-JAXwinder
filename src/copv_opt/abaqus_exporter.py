@@ -128,6 +128,9 @@ def export_to_abaqus(
             f"{material.nu_xy:.6f}, {material.nu_xz:.6f}, {material.nu_yz:.6f}, "
             f"{material.g_xy:.6f}, {material.g_xz:.6f}, {material.g_yz:.6f}\n"
         )
+        if getattr(material, "density", None) is not None:
+            stream.write("*DENSITY\n")
+            stream.write(f"{float(material.density):.12f}\n")
 
         for elem_idx, (center, e1, e2, t) in enumerate(
             zip(centroids, owner_fibers, tangent_2, owner_thickness),

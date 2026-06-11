@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 
 @dataclass
 class MaterialConfig:
-    # Representative 60% fiber-volume T700/E862 UD ply elastic constants
-    # from NASA/TM-2013-216574, Table 2. E3/nu13 are treated as transverse-
-    # isotropic screening assumptions for the current orthotropic solid model.
+    # T700/E862 UD ply elastic constants at 60% fiber volume.
+    # Source: NASA/TM-2013-216574, Table 2.
+    # E3/nu13 are treated as transversely isotropic screening assumptions for
+    # the current orthotropic solid model.
     e_xx: float = 139067.0
     e_yy: float = 7908.0
     e_zz: float = 7908.0
@@ -19,6 +20,7 @@ class MaterialConfig:
     g_xy: float = 3206.0
     base_plies: int = 4
     ply_thickness: float = 0.3
+    density: float = 1.58e-9
     density_floor: float = 1e-3
 
     @property
@@ -41,6 +43,8 @@ class FailureConfig:
     margin_of_safety: float = 1.5
     penalty_weight: float = 40.0
     softplus_scale: float = 12.0
+    penalty_worst_case_mix: float = 0.15
+    penalty_tail_fraction: float = 0.01
 
 
 @dataclass
@@ -122,6 +126,17 @@ class HybridConfig:
     winding_seed_angle_deg: float = 42.0
     winding_seed_thickness: float = 0.35
     patch_seed_thickness: float = 0.08
+    tow_width: float = 12.0
+    tow_thickness: float = 0.3
+    winding_family_count: int = 8
+    max_helical_pass_count: float = 2.0
+    max_hoop_pass_count: float = 2.0
+    helical_seed_pass_count: float = 0.9
+    hoop_seed_pass_count: float = 0.25
+    hoop_transition_length: float = 18.0
+    angle_smoothness_weight: float = 0.015
+    pass_smoothness_weight: float = 0.02
+    thickness_cap_penalty_weight: float = 30.0
     friction_cap_sample_count: int = 15
     friction_cylinder_sample_count: int = 9
 
@@ -134,8 +149,10 @@ class GeometryConfig:
     opening_radius: float = 10.0
     pressure: float = 1.0
     support_tol: float = 1.5
-    mesh_hmin: float = 16.0
-    mesh_hmax: float = 36.0
+    mesh_hmin: float = 10.0
+    mesh_hmax: float = 28.0
+    boss_hmin: float = 4.0
+    boss_refine_radius: float = 28.0
 
     @property
     def inner_radius(self) -> float:
@@ -148,3 +165,14 @@ class GeometryConfig:
     @property
     def half_cyl(self) -> float:
         return 0.5 * self.cylinder_length
+
+
+@dataclass
+class WindingOptimizationConfig(HybridConfig):
+    # Public winding-first config with the legacy patch controls disabled.
+    patch_count: int = 0
+    patch_l1_weight: float = 0.0
+    max_patch_thickness: float = 0.0
+    patch_seed_thickness: float = 0.0
+    overlap_penalty_weight: float = 0.0
+    repulsion_penalty_weight: float = 0.0

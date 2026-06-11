@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "copv_opt"
 version = "0.1.0"
-description = "Hybrid filament winding and AFP design screening for Composite Overwrapped Pressure Vessels"
+description = "Differentiable winding-first design screening for Composite Overwrapped Pressure Vessels"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -20,6 +20,7 @@ dependencies = [
     "scipy",
     "pyvista",
     "matplotlib",
+    "Pillow",
 ]
 
 [tool.setuptools.packages.find]
