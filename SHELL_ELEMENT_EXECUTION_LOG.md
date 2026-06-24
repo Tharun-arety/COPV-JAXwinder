@@ -45,7 +45,7 @@ That is why the current packaged shell summary shows:
 - a much larger mass increase than the previous toy case
 - a feasible optimized shell case only after allowing a much larger helical deposition field
 
-This is an honesty improvement, not a regression in the repo's credibility.
+The shell model is the physically correct formulation for this geometry class.
 
 ## Verification Performed
 
