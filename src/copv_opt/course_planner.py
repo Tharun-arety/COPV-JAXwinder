@@ -44,6 +44,17 @@ def _optional_array(value: Any) -> np.ndarray | None:
     return arr
 
 
+_REQUIRED_HELICAL_KEYS: frozenset[str] = frozenset({"sample_s", "paths", "family_count", "helical_pass_profile"})
+_REQUIRED_HOOP_KEYS: frozenset[str] = frozenset({"sample_s", "hoop_pass_profile"})
+
+
+def _check_layout_keys(layout: dict, required: frozenset[str], context: str) -> list[str]:
+    missing = required - layout.keys()
+    if missing:
+        return [f"{context}: layout missing required keys: {sorted(missing)}"]
+    return []
+
+
 def _segment_bounds(mask: np.ndarray) -> list[tuple[int, int]]:
     if mask.size == 0:
         return []
@@ -127,6 +138,9 @@ def _build_helical_course_plan(
     config: DiscreteCoursePlanningConfig,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], np.ndarray, dict[str, Any], list[str]]:
     warnings: list[str] = []
+    key_errors = _check_layout_keys(layout, _REQUIRED_HELICAL_KEYS, "_build_helical_course_plan")
+    if key_errors:
+        return [], [], np.zeros((0,), dtype=np.float64), {"continuous_profile_rmse": 0.0}, key_errors
     sample_s = np.asarray(layout.get("sample_s", []), dtype=np.float64)
     if sample_s.size == 0:
         return [], [], np.zeros((0,), dtype=np.float64), {"continuous_profile_rmse": 0.0}, ["Layout sample_s is empty."]
@@ -269,6 +283,9 @@ def _build_hoop_ring_plan(
     config: DiscreteCoursePlanningConfig,
 ) -> tuple[list[dict[str, Any]], np.ndarray, dict[str, Any], list[str]]:
     warnings: list[str] = []
+    key_errors = _check_layout_keys(layout, _REQUIRED_HOOP_KEYS, "_build_hoop_ring_plan")
+    if key_errors:
+        return [], np.zeros((0,), dtype=np.float64), {"continuous_profile_rmse": 0.0}, key_errors
     sample_s = np.asarray(layout.get("sample_s", []), dtype=np.float64)
     if sample_s.size == 0:
         return [], np.zeros((0,), dtype=np.float64), {"continuous_profile_rmse": 0.0}, ["Layout sample_s is empty."]

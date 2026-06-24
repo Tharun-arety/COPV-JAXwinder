@@ -30,7 +30,7 @@ The optimizer runs L-BFGS over 18 continuous controls: 6 meridional stations × 
 
 **Baseline FI:** A 4-ply axial-only base laminate under 6.85 MPa gives hoop stress ≈ 548 MPa >> YT = 70 MPa. The overwrap is the structure; the high baseline confirms correct membrane stress computation.
 
-**Mass delta:** The optimizer uses the full production-scale pass envelope (up to 44 helical, 24 hoop passes at 0.3 mm tow) to drive FI to 0.497. Downstream machine and build-time constraints are where the mass budget is tightened — not this screen.
+**Mass delta:** The optimizer uses the full production-scale pass envelope (up to 44 helical, 24 hoop passes at 0.3 mm tow) to drive FI to 0.497. Downstream machine and build-time constraints are where the mass budget is tightened — not this screen. At +757%, the total wall thickness is approximately 10.3 mm giving t/R ≈ 0.103, which is at the conventional thin-shell validity boundary (t/R < 0.1). Results at this wall fraction should be verified with a thick-shell or solid-element model before use in structural sizing.
 
 ## Physical context
 

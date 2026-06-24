@@ -20,7 +20,7 @@ class MaterialConfig:
     g_xy: float = 3206.0
     base_plies: int = 4
     ply_thickness: float = 0.3
-    density: float = 1.58e-9
+    density: float = 1.58e-9  # Mg/mm³ (= t/mm³) — consistent with MPa·mm unit system
     density_floor: float = 1e-3
 
     @property
@@ -50,6 +50,7 @@ class FailureConfig:
 @dataclass
 class FrictionConfig:
     mu_max: float = 0.15
+    friction_safety_factor: float = 0.85  # optimizer targets mu_max * this; true mu_max is the hard limit
     penalty_weight: float = 10.0
     mu_regularization: float = 1e-6
 

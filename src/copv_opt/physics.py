@@ -452,6 +452,7 @@ def element_strain_stress(
     return tensor_to_engineering_voigt_field(strain_global), tensor_to_stress_voigt_field(stress_global)
 
 
+# Used in the autodiff optimization loop — must stay JAX-traceable.
 def hashin_failure_indices(local_stress: jnp.ndarray, allowables: MaterialAllowables) -> dict[str, jnp.ndarray]:
     sigma_11 = local_stress[..., 0, 0]
     sigma_transverse = 0.5 * (local_stress[..., 1, 1] + local_stress[..., 2, 2])
@@ -489,6 +490,7 @@ def hashin_failure_indices(local_stress: jnp.ndarray, allowables: MaterialAllowa
     }
 
 
+# Used in post-processing and reporting — not on the autodiff path.
 def hashin_failure_indices_np(local_stress: np.ndarray, allowables: MaterialAllowables) -> dict[str, np.ndarray]:
     local_stress = np.asarray(local_stress, dtype=np.float64)
     sigma_11 = local_stress[..., 0, 0]
@@ -672,7 +674,8 @@ def friction_penalty(
         alpha,
         regularization=config.mu_regularization,
     )
-    excess = jax.nn.relu(mu_required - config.mu_max)
+    effective_mu_limit = config.mu_max * config.friction_safety_factor
+    excess = jax.nn.relu(mu_required - effective_mu_limit)
     penalty = config.penalty_weight * jnp.mean(excess**2)
     return {
         "mu_required": mu_required,
@@ -681,7 +684,7 @@ def friction_penalty(
     }
 
 
-def make_solve_compliance(state: dict[str, Any], tol: float = 1e-6, maxiter: int = 2400):
+def make_solve_compliance(state: dict[str, Any], tol: float = 1e-6, maxiter: int = 2400, bending_scale: float = 1.0):
     n_dof = state["n_dof"]
     elem_dofs = state["elem_dofs"]
     free_dofs = state["free_dofs"]
@@ -694,8 +697,6 @@ def make_solve_compliance(state: dict[str, Any], tol: float = 1e-6, maxiter: int
     bend_edge_owners = state["bend_edge_owners"]
     forces_free = state["forces_free"]
     forces_full = state["forces_full"]
-    bending_scale = 1.0
-
     @jax.jit
     def _solve(c_eff: jnp.ndarray, thickness: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
         q_membrane = _membrane_constitutive_matrices(c_eff, element_basis)

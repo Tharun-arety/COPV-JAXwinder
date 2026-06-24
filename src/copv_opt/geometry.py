@@ -12,9 +12,9 @@ import numpy as np
 from .config import GeometryConfig
 
 
-_CAP_LOOKUP_SAMPLES = 2049
-_PROFILE_BUILD_SAMPLES = 97
-_PROJECTION_BATCH_SIZE = 2048
+_CAP_LOOKUP_SAMPLES = 2049    # 2^11 + 1 — odd count enables Simpson's rule arc-length integration
+_PROFILE_BUILD_SAMPLES = 97   # prime — near-uniform arc-length spacing without aliasing harmonics
+_PROJECTION_BATCH_SIZE = 2048 # vectorised nearest-point projection batch; tuned for GPU/CPU cache
 
 
 @dataclass
@@ -34,8 +34,10 @@ def normalize_jax(x: jnp.ndarray, axis: int = -1, eps: float = 1e-8) -> jnp.ndar
 
 
 def _cap_axes(radius: float, dome_height_ratio: float) -> tuple[float, float]:
+    if dome_height_ratio <= 0.0:
+        raise ValueError(f"dome_height_ratio must be > 0, got {dome_height_ratio!r}")
     equatorial_radius = float(radius)
-    polar_radius = max(float(dome_height_ratio) * equatorial_radius, 1e-6)
+    polar_radius = float(dome_height_ratio) * equatorial_radius
     return equatorial_radius, polar_radius
 
 
@@ -527,6 +529,7 @@ def copv_surface_from_sphi_jax(
     pt_top = jnp.stack([rho_top * cp, rho_top * sp, half_cyl + z_top], axis=-1)
     es_top = jnp.stack([drho_ds_top * cp, drho_ds_top * sp, dz_ds_top], axis=-1)
     eph_top = jnp.stack([-sp, cp, jnp.zeros_like(sp)], axis=-1)
+    # 1e-8 mm² floor prevents division by zero at the polar boss (rho -> 0); physically ~0.0001 mm radius.
     n_top = jnp.stack(
         [
             (rho_top * cp) / max(radius**2, 1e-8),
@@ -552,6 +555,7 @@ def copv_surface_from_sphi_jax(
     pt_bot = jnp.stack([rho_bot * cp, rho_bot * sp, -half_cyl + z_bot], axis=-1)
     es_bot = jnp.stack([drho_ds_bot * cp, drho_ds_bot * sp, dz_ds_bot], axis=-1)
     eph_bot = jnp.stack([-sp, cp, jnp.zeros_like(sp)], axis=-1)
+    # same pole regularization as n_top above
     n_bot = jnp.stack(
         [
             (rho_bot * cp) / max(radius**2, 1e-8),

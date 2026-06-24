@@ -14,10 +14,46 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from copv_opt.config import FailureConfig, GeometryConfig, MaterialConfig, WindingConfig
+from copv_opt.config import FailureConfig, FrictionConfig, GeometryConfig, MaterialAllowables, MaterialConfig, WindingConfig
 from copv_opt.geometry import ensure_copv_mesh
 from copv_opt.optimize import winding_forward_angle
-from copv_opt.physics import build_copv_fem_state, evaluate_hashin_failure, make_solve_compliance, rotate_stiffness_field
+from copv_opt.physics import build_copv_fem_state, evaluate_hashin_failure, hashin_failure_indices, make_solve_compliance, rotate_stiffness_field
+
+
+class HashinAnalyticTests(unittest.TestCase):
+    """Fast unit tests — no mesh, no JAX compilation overhead."""
+
+    def test_matrix_tension_at_allowable(self) -> None:
+        import jax.numpy as jnp
+        # sigma_22 = sigma_33 = YT = 70 MPa, all other stresses zero.
+        # sigma_transverse = 0.5*(70+70) = 70 → fi_matrix_tension = (70/70)^2 = 1.0 exactly.
+        stress = jnp.zeros((3, 3))
+        stress = stress.at[1, 1].set(70.0).at[2, 2].set(70.0)
+        result = hashin_failure_indices(stress, MaterialAllowables())
+        self.assertAlmostEqual(float(result["matrix_tension"]), 1.0, places=5)
+        self.assertAlmostEqual(float(result["fiber_tension"]), 0.0, places=5)
+        self.assertAlmostEqual(float(result["fiber_compression"]), 0.0, places=5)
+
+    def test_fiber_tension_at_allowable(self) -> None:
+        import jax.numpy as jnp
+        # sigma_11 = XT = 2200 MPa → fi_fiber_tension = (2200/2200)^2 = 1.0 exactly.
+        stress = jnp.zeros((3, 3))
+        stress = stress.at[0, 0].set(2200.0)
+        result = hashin_failure_indices(stress, MaterialAllowables())
+        self.assertAlmostEqual(float(result["fiber_tension"]), 1.0, places=5)
+        self.assertAlmostEqual(float(result["matrix_tension"]), 0.0, places=5)
+
+    def test_friction_safety_factor_reduces_effective_limit(self) -> None:
+        cfg = FrictionConfig(mu_max=0.15, friction_safety_factor=0.85)
+        effective = cfg.mu_max * cfg.friction_safety_factor
+        self.assertAlmostEqual(effective, 0.1275, places=4)
+        self.assertLess(effective, cfg.mu_max)
+
+    def test_course_planner_warns_on_empty_layout(self) -> None:
+        from copv_opt.course_planner import build_discrete_winding_plan_from_layout
+        result = build_discrete_winding_plan_from_layout({}, GeometryConfig())
+        self.assertIn("warnings", result)
+        self.assertGreater(len(result["warnings"]), 0)
 
 
 class ShellRegressionTests(unittest.TestCase):
@@ -70,6 +106,8 @@ class ShellRegressionTests(unittest.TestCase):
         )
         fi_max = float(np.asarray(failure["fi_max"]))
         disp_max = float(np.max(np.linalg.norm(np.asarray(result["displacement"]).reshape(-1, 3), axis=1)))
+        # 0.75 threshold: geodesic 42-deg constant winding at 8 mm band thickness clears the
+        # Hashin limit with ~25% headroom; regression catches FEA model regressions.
         self.assertLessEqual(fi_max, 0.75)
         self.assertLessEqual(disp_max, 1.5)
 

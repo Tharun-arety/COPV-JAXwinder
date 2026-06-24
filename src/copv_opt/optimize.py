@@ -9,6 +9,8 @@ import numpy as np
 from scipy import optimize as scipy_optimize
 
 try:
+    # jaxopt L-BFGS is used when available; scipy.optimize.minimize is the fallback.
+    # jaxopt is deprecated upstream — migrate to jax.scipy.optimize or optax when stable.
     import jaxopt
 except ImportError:
     jaxopt = None
