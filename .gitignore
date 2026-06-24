@@ -15,3 +15,9 @@ build/
 *.msh
 *.inp
 .claude/
+
+# Local context and tracking docs — kept in staging repo, not for public repo
+CLAUDE.md
+BLACKWAVE_VALUE_MAP.md
+SHELL_ELEMENT_EXECUTION_LOG.md
+PRODUCTION_GRADE_COPV_PLAN.md
