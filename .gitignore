@@ -4,3 +4,14 @@ __pycache__/
 *.egg-info/
 outputs/_gif_debug*/
 outputs/_debug_*.png
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+*.vtu
+*.step
+*.msh
+*.inp
+.claude/

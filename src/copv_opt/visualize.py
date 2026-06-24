@@ -21,10 +21,15 @@ def _import_pyvista():
     return pv
 
 
+def _prepare_output_path(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink(missing_ok=True)
+
+
 def _build_glass_mandrel(plotter, base_vtu_path: str | Path, color: str = "lightgray", opacity: float = 0.18):
     pv = _import_pyvista()
     base_mesh = pv.read(str(base_vtu_path))
-    surface = base_mesh.extract_surface(algorithm="dataset_surface").triangulate()
+    surface = base_mesh.extract_surface().triangulate()
     plotter.add_mesh(
         surface,
         color=color,
@@ -193,7 +198,7 @@ def save_explicit_manufacturing_layout_screenshot(
         off_screen=True,
         window_size=window_size,
     )
-    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_path(screenshot_path)
     plotter.show(screenshot=str(screenshot_path), auto_close=True)
     return screenshot_path
 
@@ -248,7 +253,7 @@ def _to_serializable(value: Any) -> Any:
 
 def save_layout_json(path: str | Path, layout: dict[str, Any]) -> Path:
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_path(path)
     path.write_text(json.dumps(_to_serializable(layout), indent=2), encoding="utf-8")
     return path
 
@@ -269,7 +274,7 @@ def render_vtu_interactive(
     Args:
         vtu_path: Path to the generated .vtu file.
         scalar_field: The data array to map to colors.
-        show_edges: Whether to draw the tetrahedral wireframe.
+        show_edges: Whether to draw the shell/volume cell edges.
         slice_model: If True, adds an interactive clipping plane.
     """
     pv = _import_pyvista()
@@ -384,7 +389,7 @@ def save_vtu_screenshot(
     plotter.camera_position = "iso"
     plotter.camera.zoom(1.2)
 
-    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_path(screenshot_path)
     plotter.show(screenshot=str(screenshot_path), auto_close=True)
     return screenshot_path
 
@@ -441,7 +446,7 @@ def render_vtu_scalar_image(
     highlight_source = mesh_to_show
     if surface_only:
         try:
-            surface = mesh_to_show.extract_surface(algorithm="dataset_surface").triangulate()
+            surface = mesh_to_show.extract_surface().triangulate()
             if scalar_field in surface.array_names:
                 mesh_to_show = surface
         except Exception:
@@ -588,7 +593,7 @@ def save_vtu_comparison_screenshot(
 
     plotter.link_views()
     plotter.camera_position = "iso"
-    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_path(screenshot_path)
     plotter.show(screenshot=str(screenshot_path), auto_close=True)
     return screenshot_path
 
@@ -609,30 +614,34 @@ def set_copv_axes(ax, outer_radius: float, cylinder_length: float) -> None:
 
 
 def plot_copv_surface(ax, geom: GeometryConfig, alpha: float = 0.12) -> None:
-    half_cyl = geom.half_cyl
-    theta_open = np.arcsin(np.clip(geom.opening_radius / geom.outer_radius, 0.0, 0.999999))
+    _, _, total_len = copv_meridional_metrics(
+        geom.outer_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
+    s = np.linspace(0.0, total_len, 84)
     phi = np.linspace(0.0, 2.0 * np.pi, 96)
-    theta_top = np.linspace(theta_open, np.pi / 2.0, 40)
-    theta_bottom = np.linspace(np.pi / 2.0, np.pi - theta_open, 40)
-    z_cyl = np.linspace(-half_cyl, half_cyl, 40)
-
-    phi_top, theta_top_grid = np.meshgrid(phi, theta_top)
-    top_x = geom.outer_radius * np.sin(theta_top_grid) * np.cos(phi_top)
-    top_y = geom.outer_radius * np.sin(theta_top_grid) * np.sin(phi_top)
-    top_z = half_cyl + geom.outer_radius * np.cos(theta_top_grid)
-
-    phi_bot, theta_bot_grid = np.meshgrid(phi, theta_bottom)
-    bot_x = geom.outer_radius * np.sin(theta_bot_grid) * np.cos(phi_bot)
-    bot_y = geom.outer_radius * np.sin(theta_bot_grid) * np.sin(phi_bot)
-    bot_z = -half_cyl + geom.outer_radius * np.cos(theta_bot_grid)
-
-    phi_cyl, z_cyl_grid = np.meshgrid(phi, z_cyl)
-    cyl_x = geom.outer_radius * np.cos(phi_cyl)
-    cyl_y = geom.outer_radius * np.sin(phi_cyl)
-    cyl_z = z_cyl_grid
-
-    for xs, ys, zs in ((top_x, top_y, top_z), (cyl_x, cyl_y, cyl_z), (bot_x, bot_y, bot_z)):
-        ax.plot_surface(xs, ys, zs, color="aliceblue", alpha=alpha, linewidth=0.0, antialiased=False, shade=False)
+    s_grid, phi_grid = np.meshgrid(s, phi, indexing="ij")
+    surf = copv_surface_from_sphi_np(
+        geom.outer_radius,
+        s_grid.reshape(-1),
+        phi_grid.reshape(-1),
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
+    points = surf["points"].reshape(s_grid.shape + (3,))
+    ax.plot_surface(
+        points[..., 0],
+        points[..., 1],
+        points[..., 2],
+        color="aliceblue",
+        alpha=alpha,
+        linewidth=0.0,
+        antialiased=False,
+        shade=False,
+    )
 
     set_copv_axes(ax, geom.outer_radius, geom.cylinder_length)
 
@@ -662,7 +671,7 @@ def show_copv_mesh(
     ax.view_init(20, 36)
     fig.tight_layout()
     if save_path is not None:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
+        _prepare_output_path(save_path)
         fig.savefig(save_path, dpi=115)
     return fig
 
@@ -677,7 +686,14 @@ def extract_patch_polygons(
     s_coords = np.asarray(result["s_coords"])
     phis = np.asarray(result["phis"])
     alphas = np.asarray(result["alphas"])
-    surf = copv_surface_from_sphi_np(skin_radius, s_coords, phis, geom.cylinder_length, geom.opening_radius)
+    surf = copv_surface_from_sphi_np(
+        skin_radius,
+        s_coords,
+        phis,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     centers = surf["points"]
     e_s = surf["meridian_dirs"]
     e_phi = surf["hoop_dirs"]
@@ -698,7 +714,15 @@ def extract_patch_polygons(
     polygons: list[np.ndarray] = []
     for center, fiber_dir, perp_dir in zip(centers, fiber_dirs, perp_dirs):
         trial = center + local_corners[:, :1] * fiber_dir[None, :] + local_corners[:, 1:] * perp_dir[None, :]
-        polygons.append(project_to_copv_surface(trial, skin_radius, geom.cylinder_length, geom.opening_radius))
+        polygons.append(
+            project_to_copv_surface(
+                trial,
+                skin_radius,
+                geom.cylinder_length,
+                geom.opening_radius,
+                geom.dome_height_ratio,
+            )
+        )
     return polygons, centers, fiber_dirs, normals
 
 
@@ -753,6 +777,7 @@ def build_ifp_layout_data(
             np.mod(curve_phi + offset, 2.0 * np.pi),
             geom.cylinder_length,
             geom.opening_radius,
+            geom.dome_height_ratio,
         )["points"]
         curves.append(np.asarray(curve, dtype=np.float64))
 
@@ -762,6 +787,7 @@ def build_ifp_layout_data(
         ctrl_phi,
         geom.cylinder_length,
         geom.opening_radius,
+        geom.dome_height_ratio,
     )["points"]
     return {
         "layout_type": "ifp",
@@ -793,7 +819,7 @@ def plot_patch_projection(
     ax.view_init(20, 36)
     fig.tight_layout()
     if save_path is not None:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
+        _prepare_output_path(save_path)
         fig.savefig(save_path, dpi=115)
     return fig
 
@@ -820,6 +846,7 @@ def plot_ifp_projection(
             np.mod(curve_phi + offset, 2.0 * np.pi),
             geom.cylinder_length,
             geom.opening_radius,
+            geom.dome_height_ratio,
         )["points"]
         color = plt.cm.plasma(idx / max(config.family_count - 1, 1))
         ax.plot(curve[:, 0], curve[:, 1], curve[:, 2], linewidth=2.0, alpha=0.88, color=color)
@@ -831,6 +858,7 @@ def plot_ifp_projection(
         ctrl_phi,
         geom.cylinder_length,
         geom.opening_radius,
+        geom.dome_height_ratio,
     )["points"]
     ax.plot(ctrl_curve[:, 0], ctrl_curve[:, 1], ctrl_curve[:, 2], linestyle="--", color="navy", linewidth=1.5)
     ax.scatter(ctrl_curve[:, 0], ctrl_curve[:, 1], ctrl_curve[:, 2], color="navy", s=36, depthshade=False)
@@ -838,7 +866,7 @@ def plot_ifp_projection(
     ax.view_init(20, 36)
     fig.tight_layout()
     if save_path is not None:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
+        _prepare_output_path(save_path)
         fig.savefig(save_path, dpi=115)
     return fig
 
@@ -883,9 +911,21 @@ def build_constant_angle_winding_paths(
 ) -> dict[str, Any]:
     radius = geom.outer_radius if surface_radius is None else surface_radius
     alpha_cyl = np.radians(angle_deg)
-    _, _, total_len = copv_meridional_metrics(radius, geom.cylinder_length, geom.opening_radius)
+    _, _, total_len = copv_meridional_metrics(
+        radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     s = np.linspace(0.0, total_len, sample_count)
-    surf = copv_surface_from_sphi_np(radius, s, np.zeros_like(s), geom.cylinder_length, geom.opening_radius)
+    surf = copv_surface_from_sphi_np(
+        radius,
+        s,
+        np.zeros_like(s),
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     rho = surf["rho"].clip(min=geom.opening_radius + 4.0)
     clairaut_radius = radius * np.sin(alpha_cyl)
     alpha_profile = np.arcsin(np.clip(clairaut_radius / rho, -0.98, 0.98))
@@ -897,7 +937,14 @@ def build_constant_angle_winding_paths(
     for handedness, sign in (("clockwise", 1.0), ("counter_clockwise", -1.0)):
         for k in range(family_half):
             phi = np.mod(sign * base_phi + 2.0 * np.pi * k / family_half, 2.0 * np.pi)
-            curve = copv_surface_from_sphi_np(radius, s, phi, geom.cylinder_length, geom.opening_radius)["points"]
+            curve = copv_surface_from_sphi_np(
+                radius,
+                s,
+                phi,
+                geom.cylinder_length,
+                geom.opening_radius,
+                geom.dome_height_ratio,
+            )["points"]
             paths.append((handedness, curve))
     return {
         "paths": paths,
@@ -917,7 +964,12 @@ def build_variable_angle_winding_paths(
     thickness_ctrl: np.ndarray | None = None,
 ) -> dict[str, Any]:
     radius = geom.outer_radius if surface_radius is None else surface_radius
-    _, _, total_len = copv_meridional_metrics(radius, geom.cylinder_length, geom.opening_radius)
+    _, _, total_len = copv_meridional_metrics(
+        radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     sample_s = np.linspace(0.0, total_len, sample_count)
     basis = piecewise_linear_basis_np(sample_s, control_s)
     angle_ctrl = np.asarray(angle_ctrl, dtype=np.float64).reshape(-1)
@@ -926,7 +978,14 @@ def build_variable_angle_winding_paths(
     if thickness_ctrl is not None:
         thickness_profile = basis @ np.asarray(thickness_ctrl, dtype=np.float64).reshape(-1)
 
-    surf = copv_surface_from_sphi_np(radius, sample_s, np.zeros_like(sample_s), geom.cylinder_length, geom.opening_radius)
+    surf = copv_surface_from_sphi_np(
+        radius,
+        sample_s,
+        np.zeros_like(sample_s),
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     rho = np.asarray(surf["rho"], dtype=np.float64).clip(min=max(geom.opening_radius + 4.0, 1e-6))
     dphi_ds = np.tan(angle_profile) / rho
     base_phi = cumulative_trapezoid(dphi_ds, sample_s)
@@ -946,7 +1005,14 @@ def build_variable_angle_winding_paths(
     for handedness, sign in (("clockwise", 1.0), ("counter_clockwise", -1.0)):
         for k in range(family_half):
             phi = np.mod(sign * base_phi + 2.0 * np.pi * k / family_half, 2.0 * np.pi)
-            curve = copv_surface_from_sphi_np(radius, sample_s, phi, geom.cylinder_length, geom.opening_radius)["points"]
+            curve = copv_surface_from_sphi_np(
+                radius,
+                sample_s,
+                phi,
+                geom.cylinder_length,
+                geom.opening_radius,
+                geom.dome_height_ratio,
+            )["points"]
             paths.append((handedness, curve))
 
     return {
@@ -1105,7 +1171,7 @@ def plot_winding_paths(
     ax.view_init(20, 36)
     fig.tight_layout()
     if save_path is not None:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
+        _prepare_output_path(save_path)
         fig.savefig(save_path, dpi=115)
     return fig, winding
 
@@ -1138,7 +1204,7 @@ def plot_hybrid_winding_paths(
     ax.view_init(20, 36)
     fig.tight_layout()
     if save_path is not None:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
+        _prepare_output_path(save_path)
         fig.savefig(save_path, dpi=115)
     return fig, winding
 
@@ -1161,7 +1227,7 @@ def plot_winding_process_paths(
 
 
 def save_tradeoff_plot(path: Path, labels: list[str], masses: list[float], strain_energies: list[float]):
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_path(path)
     fig, ax = plt.subplots(figsize=(7, 5))
     colors = ["gray", "steelblue", "darkorange", "forestgreen", "crimson", "slateblue"]
     ax.scatter(masses, strain_energies, s=90, c=colors[: len(labels)])
@@ -1187,7 +1253,11 @@ def write_vtu(
     coverage: np.ndarray,
     extra_cell_data: dict[str, np.ndarray] | None = None,
 ) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_path(path)
+    elems = np.asarray(elems, dtype=np.int32)
+    if elems.ndim != 2 or elems.shape[1] not in (3, 4):
+        raise ValueError("write_vtu expects triangle or tetrahedral connectivity")
+    cell_type = "triangle" if elems.shape[1] == 3 else "tetra"
     disp_norm = np.linalg.norm(displacement, axis=1)
     cell_data = {
         "thickness": [np.asarray(thickness, dtype=np.float64)],
@@ -1200,7 +1270,7 @@ def write_vtu(
             cell_data[str(key)] = [np.asarray(value, dtype=np.float64)]
     mesh = meshio.Mesh(
         points=np.asarray(nodes, dtype=np.float64),
-        cells=[("tetra", np.asarray(elems, dtype=np.int32))],
+        cells=[(cell_type, elems)],
         point_data={
             "displacement": np.asarray(displacement, dtype=np.float64),
             "displacement_norm": np.asarray(disp_norm, dtype=np.float64),
