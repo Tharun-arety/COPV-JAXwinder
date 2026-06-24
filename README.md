@@ -24,7 +24,17 @@ The comparison matrix and GIF are generated from the packaged winding snapshots 
 
 The current geometry is a cylindrical shell with hemispherical end caps and `10 mm` polar boss openings. The mesh is refined globally to `hmin = 10 mm`, `hmax = 28 mm`, with a local `4 mm` boss refinement zone inside a `28 mm` radius around each polar opening. That refinement is what exposes the boss-rim failure hotspot in the current verification outputs.
 
-The geometry is fixed in the optimizer. Dome-profile optimization, autofrettage, residual-stress buildup, and full process simulation are not part of the current workflow. The optimizer changes only winding angle plus helical and hoop pass density on that fixed shell.
+The geometry is fixed in the optimizer. Dome-profile optimization, autofrettage, residual-stress buildup, and full process simulation are not part of the current workflow.
+
+More concretely, `run_winding_optimization()` solves for `18` continuous winding controls by default: `6` meridional control stations (`winding_ctrl_count = 6`) times `3` process parameters per station.
+
+| Optimized process parameter | Internal field | Physical meaning | Default bounds |
+| --- | --- | --- | --- |
+| Helical winding angle profile | `winding_angle_ctrl` | Fiber angle relative to the local meridian, interpolated from pole to pole | `12-58 deg` |
+| Helical pass-count / deposition profile | `helical_pass_ctrl` | Relative helical tow deposition at each station; converted to added thickness using `tow_thickness = 0.3 mm`, `tow_width = 12 mm`, `winding_family_count = 8`, and local vessel radius | `0-2` continuous passes |
+| Hoop pass-count / deposition profile | `hoop_pass_ctrl` | Relative hoop tow deposition at each station; active mainly on the cylindrical section through a smooth hoop window | `0-2` continuous passes |
+
+Those pass counts are continuous screening controls, not discrete machine-programmed whole passes. The optimizer objective balances structural failure, friction feasibility, mass, profile smoothness, and a local winding-thickness cap of `1.2 mm`. It does not optimize tow width, tow thickness, hoop transition length, friction limit, material properties, or vessel geometry unless those fixed configuration values are edited by hand.
 
 The boss region also has a real physical helical exclusion zone. With the current mid-surface radius of `96 mm` and the allowed helical angle range of `12-58 deg`, the Clairaut minimum geodesic reach spans roughly `20.0-81.4 mm` from the vessel axis. The `10 mm` polar opening lies inside that exclusion zone for every helical family in the packaged run, and the hoop deposition window is concentrated on the cylindrical span and decays rapidly into the domes. That means the boss rim is carried by the base laminate thickness directly, while the optimizer reinforces the adjacent cylinder and transition zone. In the packaged winding-first result, the residual governing hotspot still sits near the far boss rim rather than in the reinforced cylindrical band.
 
