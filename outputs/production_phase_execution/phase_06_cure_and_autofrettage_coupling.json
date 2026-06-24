@@ -1,0 +1,63 @@
+{
+  "phase_id": "phase_06",
+  "title": "Cure and Autofrettage Coupling",
+  "status": "blocked_by_input_gaps",
+  "release_gate_closed": false,
+  "closure_basis": "The phase can only audit input readiness today; a coupled cure/residual-stress/autofrettage solver is not yet implemented in-repo.",
+  "objective": "Prepare the coupled cured/autofrettaged process state that a production-grade structural release would require.",
+  "how_it_is_done": [
+    "The phase checks whether cure steps, autofrettage target pressure, hold logic, and liner yield information are defined in the production contract.",
+    "Where data exists, it aggregates cure exposure and pressure ratios so the repo can measure process-state readiness before adding a full coupled solver."
+  ],
+  "why_this_way": [
+    "Without cure kinetics and liner plasticity data, any residual-stress number would be fabricated. This phase is intentionally readiness-gated rather than numerically overconfident.",
+    "The completeness ratio makes the missing process inputs explicit so later engineering effort goes to the right bottleneck instead of the wrong code path."
+  ],
+  "inputs": {
+    "cure_cycle_name": "UNSPECIFIED_CURE",
+    "autofrettage_model": null
+  },
+  "metrics": {
+    "input_completeness_ratio": 0.0,
+    "cure_step_count": 0,
+    "cure_peak_temperature_c": null,
+    "cure_total_hold_time_min": 0.0,
+    "autofrettage_target_pressure": null,
+    "pressure_to_autofrettage_ratio": null,
+    "operating_pressure": 6.85,
+    "allowable_pressure_with_margin": 7.422397864796773
+  },
+  "verification_checks": [
+    {
+      "name": "cure_cycle_defined",
+      "passed": false,
+      "detail": {
+        "step_count": 0
+      }
+    },
+    {
+      "name": "autofrettage_target_defined",
+      "passed": false,
+      "detail": {
+        "target_pressure": null
+      }
+    },
+    {
+      "name": "operating_pressure_below_allowable_pressure",
+      "passed": true,
+      "detail": {
+        "operating_pressure": 6.85,
+        "allowable_pressure_with_margin": 7.422397864796773
+      }
+    }
+  ],
+  "blockers": [
+    "Cure cycle steps are missing, so degree-of-cure and residual thermal history cannot be simulated.",
+    "Autofrettage target pressure is missing, so the liner/plastic pre-stress state cannot be evaluated.",
+    "Liner yield pressure is missing, so the autofrettage window cannot be validated."
+  ],
+  "artifacts": [
+    "phase_06_cure_and_autofrettage_coupling.json",
+    "phase_06_cure_and_autofrettage_coupling.md"
+  ]
+}

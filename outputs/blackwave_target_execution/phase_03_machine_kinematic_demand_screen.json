@@ -1,0 +1,82 @@
+{
+  "phase_id": "phase_03",
+  "title": "Machine Kinematic Demand Screen",
+  "status": "demand_quantified_only",
+  "release_gate_closed": false,
+  "closure_basis": "The phase quantifies kinematic demand, but a machine-specific inverse-kinematics and NC/post-processor stack is still missing.",
+  "objective": "Quantify the geometric and rotational demand that the discrete courses place on a real winding machine.",
+  "how_it_is_done": [
+    "Each discrete helical course is converted into 3D path-demand metrics: path length, mandrel rotation, estimated time, required RPM, and local turning radius.",
+    "If machine limits are present, those demand metrics are checked against the declared hardware envelope."
+  ],
+  "why_this_way": [
+    "A real winder must satisfy path demand before any structural argument matters. The analysis is demand-first because the repo still lacks a machine-specific inverse-kinematics post-processor.",
+    "Turning radius is derived from the actual exported 3D path instead of only from angle profiles so the report reflects what the discrete plan is really asking the hardware to do."
+  ],
+  "inputs": {
+    "course_count": 352,
+    "machine_name": "BLACKWAVE_PUBLIC_PLACEHOLDER_WINDER"
+  },
+  "metrics": {
+    "course_count": 352,
+    "max_path_length_mm": 887.9640045889641,
+    "mean_path_length_mm": 887.9640045889639,
+    "max_required_mandrel_rpm": null,
+    "min_local_turning_radius_mm": 10.559709025611943,
+    "rpm_violation_count": 0,
+    "turning_radius_violation_count": 0,
+    "nominal_head_speed_mm_s": null,
+    "max_head_speed_mm_s": null
+  },
+  "verification_checks": [
+    {
+      "name": "courses_have_geometry",
+      "passed": true,
+      "detail": {
+        "course_count": 352
+      }
+    },
+    {
+      "name": "turning_radius_computed",
+      "passed": true,
+      "detail": {
+        "finite_radius_count": 352,
+        "course_count": 352
+      }
+    },
+    {
+      "name": "mandrel_rpm_within_limit",
+      "passed": null,
+      "detail": {
+        "rpm_violations": 0,
+        "max_mandrel_rpm_limit": null
+      }
+    },
+    {
+      "name": "planned_head_speed_within_machine_limit",
+      "passed": null,
+      "detail": {
+        "nominal_head_speed_mm_s": null,
+        "max_head_speed_mm_s": null
+      }
+    },
+    {
+      "name": "turning_radius_within_limit",
+      "passed": null,
+      "detail": {
+        "radius_violations": 0,
+        "minimum_turning_radius_limit_mm": null
+      }
+    }
+  ],
+  "blockers": [
+    "Machine nominal head speed is not defined, so time and RPM demand cannot be converted into a planned cycle-rate check.",
+    "Machine maximum head speed is not defined, so kinematic demand can only be quantified, not accepted/rejected.",
+    "Machine mandrel RPM limit is not defined, so rotational feasibility cannot be closed.",
+    "Machine minimum turning radius is not defined, so steering feasibility cannot be closed."
+  ],
+  "artifacts": [
+    "phase_03_machine_kinematic_demand_screen.json",
+    "phase_03_machine_kinematic_demand_screen.md"
+  ]
+}

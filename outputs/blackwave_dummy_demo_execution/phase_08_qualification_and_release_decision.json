@@ -1,0 +1,84 @@
+{
+  "phase_id": "phase_08",
+  "title": "Qualification and Release Decision",
+  "status": "do_not_release",
+  "release_gate_closed": false,
+  "closure_basis": "The staged repo still lacks one or more closed internal production gates and/or the required external qualification evidence.",
+  "objective": "Decide whether the current production pipeline has enough engineering and qualification evidence to release a real COPV build.",
+  "how_it_is_done": [
+    "Internal evidence is gathered from the executed phase stack: data contract, discrete planning, kinematics, deposition, as-built, process-state, and inspection.",
+    "External evidence is checked through the declared qualification dataset references for coupon, subcomponent, and vessel-level proof."
+  ],
+  "why_this_way": [
+    "A production release is an evidence problem as much as a modeling problem. This phase makes that release logic explicit instead of leaving it implicit in engineering judgment alone.",
+    "The release decision is conservative by design: missing qualification evidence forces a `do_not_release` result even if the in-repo screening artifacts look good."
+  ],
+  "inputs": {
+    "qualification_standard": "DUMMY-SPACE-COPV-QUAL-001",
+    "required_qualification_paths": [
+      "demo_data/blackwave_dummy_qualification/coupons.json",
+      "demo_data/blackwave_dummy_qualification/subcomponents.json",
+      "demo_data/blackwave_dummy_qualification/vessels.json"
+    ]
+  },
+  "metrics": {
+    "internal_phase_count": 7,
+    "closed_internal_phase_count": 1,
+    "internal_release_stack_ready": false,
+    "external_evidence_ready": true,
+    "release_ready": false
+  },
+  "verification_checks": [
+    {
+      "name": "internal_phase_stack_executed",
+      "passed": true,
+      "detail": {
+        "phase_01": "implemented_with_external_gaps",
+        "phase_02": "computed",
+        "phase_03": "screened_against_limits",
+        "phase_04": "relative_seed_screening_only",
+        "phase_05": "first_order_surrogate",
+        "phase_06": "input_stack_ready_for_coupling",
+        "phase_07": "traceability_scaffold_ready"
+      }
+    },
+    {
+      "name": "internal_release_gates_closed",
+      "passed": false,
+      "detail": {
+        "phase_01": false,
+        "phase_02": true,
+        "phase_03": false,
+        "phase_04": false,
+        "phase_05": false,
+        "phase_06": false,
+        "phase_07": false
+      }
+    },
+    {
+      "name": "external_qualification_evidence_present",
+      "passed": true,
+      "detail": {
+        "required_paths": [
+          "demo_data/blackwave_dummy_qualification/coupons.json",
+          "demo_data/blackwave_dummy_qualification/subcomponents.json",
+          "demo_data/blackwave_dummy_qualification/vessels.json"
+        ]
+      }
+    },
+    {
+      "name": "release_decision_ready",
+      "passed": false,
+      "detail": {
+        "release_ready": false
+      }
+    }
+  ],
+  "blockers": [
+    "Internal production release gates remain open for: phase_01, phase_03, phase_04, phase_05, phase_06, phase_07."
+  ],
+  "artifacts": [
+    "phase_08_qualification_and_release_decision.json",
+    "phase_08_qualification_and_release_decision.md"
+  ]
+}

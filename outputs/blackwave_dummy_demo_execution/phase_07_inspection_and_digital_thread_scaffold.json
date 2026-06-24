@@ -1,0 +1,68 @@
+{
+  "phase_id": "phase_07",
+  "title": "Inspection and Digital Thread Scaffold",
+  "status": "traceability_scaffold_ready",
+  "release_gate_closed": false,
+  "closure_basis": "The repo now emits a digital-thread scaffold, but it does not yet ingest live inspection data or integrate with a real quality/MES stack.",
+  "objective": "Connect the production program to quality gates, as-built deviations, and evidence references required for traceable release.",
+  "how_it_is_done": [
+    "The phase builds a traceability record linking the source optimizer artifact, discrete plan, as-built surrogate, and declared inspection/qualification references.",
+    "Inspection readiness is checked against the presence of NDI method and acceptance thresholds for gap, overlap, and wrinkle criteria."
+  ],
+  "why_this_way": [
+    "A production optimizer is not just a geometry generator. It must produce a digital thread that later inspection and certification systems can consume.",
+    "The traceability record is explicit so missing evidence is visible as missing data, not silently assumed to exist."
+  ],
+  "inputs": {
+    "line_name": "BLACKWAVE_DUMMY_DEMO_LINE",
+    "qualification_standard": "DUMMY-SPACE-COPV-QUAL-001"
+  },
+  "metrics": {
+    "max_gap_mm": 0.0,
+    "max_overlap_mm": 0.0003502861335995533,
+    "thickness_rmse_mm": 9.397498358398144e-05,
+    "required_ndi_method": "CT_PLUS_UT",
+    "traceability_record_field_count": 12,
+    "source_layout_artifact": "outputs/winding_first_layout.json",
+    "discrete_plan_artifact": "A:\\FPP web App\\Tailored_Projects\\COPV_JAX_winder\\outputs\\blackwave_dummy_demo_execution\\phase_02_discrete_course_planning.json",
+    "kinematics_artifact": "A:\\FPP web App\\Tailored_Projects\\COPV_JAX_winder\\outputs\\blackwave_dummy_demo_execution\\phase_03_machine_kinematic_demand_screen.json",
+    "as_built_artifact": "A:\\FPP web App\\Tailored_Projects\\COPV_JAX_winder\\outputs\\blackwave_dummy_demo_execution\\phase_05_first_order_as_built_laminate_surrogate.json"
+  },
+  "verification_checks": [
+    {
+      "name": "source_layout_artifact_present",
+      "passed": true,
+      "detail": {
+        "source_label": "outputs/winding_first_layout.json"
+      }
+    },
+    {
+      "name": "internal_traceability_paths_declared",
+      "passed": true,
+      "detail": {
+        "discrete_plan_artifact": "A:\\FPP web App\\Tailored_Projects\\COPV_JAX_winder\\outputs\\blackwave_dummy_demo_execution\\phase_02_discrete_course_planning.json",
+        "kinematics_artifact": "A:\\FPP web App\\Tailored_Projects\\COPV_JAX_winder\\outputs\\blackwave_dummy_demo_execution\\phase_03_machine_kinematic_demand_screen.json",
+        "as_built_artifact": "A:\\FPP web App\\Tailored_Projects\\COPV_JAX_winder\\outputs\\blackwave_dummy_demo_execution\\phase_05_first_order_as_built_laminate_surrogate.json"
+      }
+    },
+    {
+      "name": "gap_threshold_defined",
+      "passed": true,
+      "detail": {
+        "gap_limit_mm": 0.08
+      }
+    },
+    {
+      "name": "ndi_method_defined",
+      "passed": true,
+      "detail": {
+        "final_ndi_method": "CT_PLUS_UT"
+      }
+    }
+  ],
+  "blockers": [],
+  "artifacts": [
+    "phase_07_inspection_and_digital_thread_scaffold.json",
+    "phase_07_inspection_and_digital_thread_scaffold.md"
+  ]
+}

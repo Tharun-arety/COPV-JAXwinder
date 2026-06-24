@@ -1,0 +1,59 @@
+{
+  "phase_id": "phase_06",
+  "title": "Cure and Autofrettage Coupling",
+  "status": "input_stack_ready_for_coupling",
+  "release_gate_closed": false,
+  "closure_basis": "The phase can only audit input readiness today; a coupled cure/residual-stress/autofrettage solver is not yet implemented in-repo.",
+  "objective": "Prepare the coupled cured/autofrettaged process state that a production-grade structural release would require.",
+  "how_it_is_done": [
+    "The phase checks whether cure steps, autofrettage target pressure, hold logic, and liner yield information are defined in the production contract.",
+    "Where data exists, it aggregates cure exposure and pressure ratios so the repo can measure process-state readiness before adding a full coupled solver."
+  ],
+  "why_this_way": [
+    "Without cure kinetics and liner plasticity data, any residual-stress number would be fabricated. This phase is intentionally readiness-gated rather than numerically overconfident.",
+    "The completeness ratio makes the missing process inputs explicit so later engineering effort goes to the right bottleneck instead of the wrong code path."
+  ],
+  "inputs": {
+    "cure_cycle_name": "DUMMY_CURE_CYCLE_V1",
+    "autofrettage_model": "dummy_elastoplastic_model"
+  },
+  "metrics": {
+    "input_completeness_ratio": 1.0,
+    "cure_step_count": 3,
+    "cure_peak_temperature_c": 120.0,
+    "cure_total_hold_time_min": 65.0,
+    "autofrettage_target_pressure": 10.5,
+    "pressure_to_autofrettage_ratio": 0.6523809523809524,
+    "operating_pressure": 6.85,
+    "allowable_pressure_with_margin": 7.422397864796773
+  },
+  "verification_checks": [
+    {
+      "name": "cure_cycle_defined",
+      "passed": true,
+      "detail": {
+        "step_count": 3
+      }
+    },
+    {
+      "name": "autofrettage_target_defined",
+      "passed": true,
+      "detail": {
+        "target_pressure": 10.5
+      }
+    },
+    {
+      "name": "operating_pressure_below_allowable_pressure",
+      "passed": true,
+      "detail": {
+        "operating_pressure": 6.85,
+        "allowable_pressure_with_margin": 7.422397864796773
+      }
+    }
+  ],
+  "blockers": [],
+  "artifacts": [
+    "phase_06_cure_and_autofrettage_coupling.json",
+    "phase_06_cure_and_autofrettage_coupling.md"
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "phase_id": "phase_02",
+  "title": "Discrete Course Planning",
+  "status": "computed",
+  "release_gate_closed": true,
+  "closure_basis": "Explicit course objects were exported without planner warnings.",
+  "objective": "Translate the continuous winding screening field into explicit helical course pairs and hoop ring objects.",
+  "how_it_is_done": [
+    "The continuous helical pass profile is quantized into balanced clockwise/counter-clockwise course pairs.",
+    "Short inactive gaps are merged and short active segments are removed so the exported plan avoids unrealistic fragments.",
+    "The hoop profile is quantized separately into ring bands on the cylindrical span."
+  ],
+  "why_this_way": [
+    "The current optimizer is still axisymmetric, so the planner discretizes downstream instead of pretending the continuous field is already machine-ready.",
+    "Balanced handedness preserves the structural intent of the screening solution while making the plan closer to what a real winding schedule would execute."
+  ],
+  "inputs": {
+    "sample_point_count": 320
+  },
+  "metrics": {
+    "total_course_pairs": 176,
+    "total_individual_courses": 352,
+    "total_hoop_rings": 24,
+    "total_cut_restart_events": 0,
+    "helical_pass_rmse": 5.617333549722722e-16,
+    "hoop_pass_rmse": 0.00033119687606903526,
+    "helical_activation_balance_cv": 0.0
+  },
+  "verification_checks": [
+    {
+      "name": "helical_course_pairs_exported",
+      "passed": true,
+      "detail": 176
+    },
+    {
+      "name": "helical_quantization_error_finite",
+      "passed": true,
+      "detail": 5.617333549722722e-16
+    },
+    {
+      "name": "hoop_quantization_error_finite",
+      "passed": true,
+      "detail": 0.00033119687606903526
+    }
+  ],
+  "blockers": [],
+  "artifacts": [
+    "phase_02_discrete_course_planning.json",
+    "phase_02_discrete_course_planning.md"
+  ]
+}
