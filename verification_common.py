@@ -71,6 +71,11 @@ def repo_rel(path: Path) -> str:
         return str(path)
 
 
+def _prepare_output_path(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink(missing_ok=True)
+
+
 def plot_objective_influence(
     baseline: dict[str, Any],
     history: list[dict[str, Any]],
@@ -138,7 +143,7 @@ def plot_objective_influence(
     ax.legend(frameon=False, fontsize=8)
 
     fig.tight_layout()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_path(output_path)
     fig.savefig(output_path, dpi=120)
     plt.close(fig)
 
@@ -228,7 +233,7 @@ def plot_hashin_burst(
     ax.legend(frameon=False, fontsize=8)
 
     fig.tight_layout()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_path(output_path)
     fig.savefig(output_path, dpi=120)
     plt.close(fig)
     return critical_summary, burst_profile
@@ -305,6 +310,6 @@ def plot_manufacturing_constraints(
     ax.legend(frameon=False, fontsize=8)
 
     fig.tight_layout()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_output_path(output_path)
     fig.savefig(output_path, dpi=120)
     plt.close(fig)

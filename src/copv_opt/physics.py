@@ -9,15 +9,18 @@ import numpy as np
 
 from .config import FailureConfig, FrictionConfig, GeometryConfig, MaterialAllowables, MaterialConfig
 from .geometry import (
-    classify_copv_boundary_faces,
+    copv_opening_z,
     copv_normals_np,
+    copv_principal_curvatures_np,
     copv_surface_projection_np,
-    extract_boundary_faces,
     normalize_jax,
+    orient_shell_faces,
 )
 
 
 VM = ((0, 0), (1, 1), (2, 2), (1, 2), (0, 2), (0, 1))
+MEMBRANE_VOIGT = np.asarray([0, 1, 5], dtype=np.int32)
+TRANSVERSE_VOIGT = np.asarray([2, 3, 4], dtype=np.int32)
 
 
 def orthotropic_stiffness_matrix(material: MaterialConfig) -> np.ndarray:
@@ -64,111 +67,11 @@ def base_material_tensor(material: MaterialConfig) -> np.ndarray:
     return d6_to_c4(orthotropic_stiffness_matrix(material))
 
 
-def build_pressure_forces(nodes: np.ndarray, faces: np.ndarray, geom: GeometryConfig) -> np.ndarray:
-    tri_pts = nodes[faces]
-    centroids = tri_pts.mean(axis=1)
-    normals = copv_normals_np(centroids, geom.inner_radius, geom.cylinder_length)
-    areas = 0.5 * np.linalg.norm(np.cross(tri_pts[:, 1] - tri_pts[:, 0], tri_pts[:, 2] - tri_pts[:, 0]), axis=1)
-    face_forces = geom.pressure * areas[:, None] * normals
-    forces = np.zeros((len(nodes), 3), dtype=np.float64)
-    for idx in range(3):
-        np.add.at(forces, faces[:, idx], face_forces / 3.0)
-    return forces
-
-
-def build_copv_fem_state(
-    nodes: np.ndarray,
-    elems: np.ndarray,
-    material: MaterialConfig,
-    geom: GeometryConfig,
-) -> dict[str, Any]:
-    nodes = np.asarray(nodes, dtype=np.float64)
-    elems = np.asarray(elems, dtype=np.int32)
-
-    ne = nodes[elems]
-    p0 = ne[:, 0]
-    jac = np.stack([ne[:, 1] - p0, ne[:, 2] - p0, ne[:, 3] - p0], axis=1)
-    volumes = np.abs(np.linalg.det(jac)) / 6.0
-
-    d_n = np.array(
-        [
-            [-1.0, -1.0, -1.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ],
-        dtype=np.float64,
-    )
-    d_ndx = np.einsum("ij,ekj->eik", d_n, np.linalg.inv(jac))
-    b = np.zeros((len(elems), 6, 12), dtype=np.float64)
-    for i in range(4):
-        b[:, 0, 3 * i] = d_ndx[:, i, 0]
-        b[:, 1, 3 * i + 1] = d_ndx[:, i, 1]
-        b[:, 2, 3 * i + 2] = d_ndx[:, i, 2]
-        b[:, 3, 3 * i + 1] = d_ndx[:, i, 2]
-        b[:, 3, 3 * i + 2] = d_ndx[:, i, 1]
-        b[:, 4, 3 * i] = d_ndx[:, i, 2]
-        b[:, 4, 3 * i + 2] = d_ndx[:, i, 0]
-        b[:, 5, 3 * i] = d_ndx[:, i, 1]
-        b[:, 5, 3 * i + 1] = d_ndx[:, i, 0]
-
-    elem_dofs = (elems[:, :, None] * 3 + np.arange(3, dtype=np.int32)).reshape(len(elems), 12)
-    n_dof = len(nodes) * 3
-
-    rho_nodes = np.linalg.norm(nodes[:, :2], axis=1)
-    opening_z = geom.half_cyl + np.sqrt(max(geom.inner_radius**2 - geom.opening_radius**2, 0.0))
-    support_mask = (rho_nodes <= geom.opening_radius + geom.support_tol) & (np.abs(nodes[:, 2]) >= opening_z - geom.support_tol)
-    fixed_mask = np.tile(support_mask[:, None], (1, 3)).reshape(-1)
-    free_dofs = np.setdiff1d(np.arange(n_dof), np.where(fixed_mask)[0]).astype(np.int32)
-
-    boundary_faces = extract_boundary_faces(elems)
-    inner_mask, outer_mask, _ = classify_copv_boundary_faces(nodes, boundary_faces, geom)
-    inner_faces = boundary_faces[inner_mask]
-    outer_faces = boundary_faces[outer_mask]
-    forces = build_pressure_forces(nodes, inner_faces, geom).reshape(-1)
-
-    centroids = nodes[elems].mean(axis=1)
-    surf = copv_surface_projection_np(centroids, geom.mid_radius, geom.cylinder_length, geom.opening_radius)
-
-    return {
-        "nodes_np": nodes,
-        "elems_np": elems,
-        "element_count": int(len(elems)),
-        "outer_faces": outer_faces,
-        "inner_faces": inner_faces,
-        "support_mask": support_mask,
-        "n_dof": int(n_dof),
-        "elem_dofs": jnp.asarray(elem_dofs),
-        "free_dofs": jnp.asarray(free_dofs),
-        "volumes": jnp.asarray(volumes),
-        "b": jnp.asarray(b),
-        "forces_full": jnp.asarray(forces),
-        "forces_free": jnp.asarray(forces[free_dofs]),
-        "surface_points": jnp.asarray(surf["points"]),
-        "surface_normals": jnp.asarray(surf["normals"]),
-        "meridian_dirs": jnp.asarray(surf["meridian_dirs"]),
-        "hoop_dirs": jnp.asarray(surf["hoop_dirs"]),
-        "surface_rho": jnp.asarray(surf["rho"]),
-        "s_coords": jnp.asarray(surf["s"]),
-        "phi_coords": jnp.asarray(surf["phi"]),
-        "c_mat": jnp.asarray(base_material_tensor(material)),
-    }
-
-
 def c4_to_d6(c_tensor: jnp.ndarray) -> jnp.ndarray:
     return jnp.stack(
         [jnp.stack([c_tensor[:, i, j, k, l] for k, l in VM], axis=-1) for i, j in VM],
         axis=-2,
     )
-
-
-def rotate_stiffness_field(c_mat: jnp.ndarray, fiber_dirs: jnp.ndarray, normals: jnp.ndarray) -> jnp.ndarray:
-    e3 = normalize_jax(normals)
-    e1 = fiber_dirs - jnp.sum(fiber_dirs * e3, axis=-1, keepdims=True) * e3
-    e1 = normalize_jax(e1)
-    e2 = normalize_jax(jnp.cross(e3, e1))
-    r = jnp.stack([e1, e2, e3], axis=-1)
-    return jnp.einsum("abcd,eia,ejb,ekc,eld->eijkl", c_mat, r, r, r, r)
 
 
 def engineering_strain_to_tensor_field(strain: jnp.ndarray) -> jnp.ndarray:
@@ -193,6 +96,43 @@ def stress_voigt_to_tensor_field(stress: jnp.ndarray) -> jnp.ndarray:
     )
 
 
+def tensor_to_engineering_voigt_field(tensor: jnp.ndarray) -> jnp.ndarray:
+    return jnp.stack(
+        [
+            tensor[..., 0, 0],
+            tensor[..., 1, 1],
+            tensor[..., 2, 2],
+            2.0 * tensor[..., 1, 2],
+            2.0 * tensor[..., 0, 2],
+            2.0 * tensor[..., 0, 1],
+        ],
+        axis=-1,
+    )
+
+
+def tensor_to_stress_voigt_field(tensor: jnp.ndarray) -> jnp.ndarray:
+    return jnp.stack(
+        [
+            tensor[..., 0, 0],
+            tensor[..., 1, 1],
+            tensor[..., 2, 2],
+            tensor[..., 1, 2],
+            tensor[..., 0, 2],
+            tensor[..., 0, 1],
+        ],
+        axis=-1,
+    )
+
+
+def rotate_stiffness_field(c_mat: jnp.ndarray, fiber_dirs: jnp.ndarray, normals: jnp.ndarray) -> jnp.ndarray:
+    e3 = normalize_jax(normals)
+    e1 = fiber_dirs - jnp.sum(fiber_dirs * e3, axis=-1, keepdims=True) * e3
+    e1 = normalize_jax(e1)
+    e2 = normalize_jax(jnp.cross(e3, e1))
+    r = jnp.stack([e1, e2, e3], axis=-1)
+    return jnp.einsum("abcd,eia,ejb,ekc,eld->eijkl", c_mat, r, r, r, r)
+
+
 def local_frame_from_fiber(fiber_dirs: jnp.ndarray, normals: jnp.ndarray) -> jnp.ndarray:
     e3 = normalize_jax(normals)
     ref_x = jnp.broadcast_to(jnp.asarray([1.0, 0.0, 0.0], dtype=fiber_dirs.dtype), fiber_dirs.shape)
@@ -206,7 +146,268 @@ def local_frame_from_fiber(fiber_dirs: jnp.ndarray, normals: jnp.ndarray) -> jnp
     return jnp.stack([e1, e2, e3], axis=-1)
 
 
-def element_strain_stress(
+def _triangle_geometry(
+    nodes: np.ndarray,
+    elems: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    tri = np.asarray(nodes, dtype=np.float64)[np.asarray(elems, dtype=np.int32)]
+    edge_12 = tri[:, 1] - tri[:, 0]
+    edge_13 = tri[:, 2] - tri[:, 0]
+
+    raw_normals = np.cross(edge_12, edge_13)
+    normal_norm = np.linalg.norm(raw_normals, axis=1, keepdims=True).clip(min=1e-12)
+    normals = raw_normals / normal_norm
+    t1 = edge_12 / np.linalg.norm(edge_12, axis=1, keepdims=True).clip(min=1e-12)
+    t2 = np.cross(normals, t1)
+    t2 = t2 / np.linalg.norm(t2, axis=1, keepdims=True).clip(min=1e-12)
+    basis = np.stack([t1, t2, normals], axis=-1)
+
+    x1 = np.zeros((len(elems),), dtype=np.float64)
+    y1 = np.zeros((len(elems),), dtype=np.float64)
+    x2 = np.linalg.norm(edge_12, axis=1)
+    y2 = np.zeros((len(elems),), dtype=np.float64)
+    x3 = np.einsum("ei,ei->e", edge_13, t1)
+    y3 = np.einsum("ei,ei->e", edge_13, t2)
+
+    two_area = x2 * y3 - x3 * y2
+    areas = 0.5 * np.abs(two_area)
+    if np.any(areas <= 1e-10):
+        raise ValueError("Degenerate shell triangle detected during membrane kinematics assembly")
+
+    dndx = np.stack([y2 - y3, y3 - y1, y1 - y2], axis=1) / two_area[:, None]
+    dndy = np.stack([x3 - x2, x1 - x3, x2 - x1], axis=1) / two_area[:, None]
+
+    return areas, basis, dndx, dndy
+
+
+def _curvature_tensor_in_element_basis(
+    k_meridian: np.ndarray,
+    k_hoop: np.ndarray,
+    meridian_dirs: np.ndarray,
+    hoop_dirs: np.ndarray,
+    element_basis: np.ndarray,
+) -> np.ndarray:
+    meridian_dirs = np.asarray(meridian_dirs, dtype=np.float64)
+    hoop_dirs = np.asarray(hoop_dirs, dtype=np.float64)
+    element_basis = np.asarray(element_basis, dtype=np.float64)
+    t1 = element_basis[:, :, 0]
+    t2 = element_basis[:, :, 1]
+    transform = np.stack(
+        [
+            np.stack([np.einsum("ei,ei->e", meridian_dirs, t1), np.einsum("ei,ei->e", meridian_dirs, t2)], axis=-1),
+            np.stack([np.einsum("ei,ei->e", hoop_dirs, t1), np.einsum("ei,ei->e", hoop_dirs, t2)], axis=-1),
+        ],
+        axis=1,
+    )
+    curvature_mh = np.zeros((len(k_meridian), 2, 2), dtype=np.float64)
+    curvature_mh[:, 0, 0] = np.asarray(k_meridian, dtype=np.float64)
+    curvature_mh[:, 1, 1] = np.asarray(k_hoop, dtype=np.float64)
+    return np.einsum("eai,eab,ebj->eij", transform, curvature_mh, transform)
+
+
+def _triangle_membrane_kinematics(
+    basis: np.ndarray,
+    dndx: np.ndarray,
+    dndy: np.ndarray,
+    curvature_tensor: np.ndarray,
+) -> np.ndarray:
+    element_count = len(dndx)
+    b_local = np.zeros((element_count, 3, 9), dtype=np.float64)
+    curvature_vec = np.stack(
+        [
+            curvature_tensor[:, 0, 0],
+            curvature_tensor[:, 1, 1],
+            2.0 * curvature_tensor[:, 0, 1],
+        ],
+        axis=-1,
+    )
+    for idx in range(3):
+        dof = 3 * idx
+        b_local[:, 0, dof] = dndx[:, idx]
+        b_local[:, 1, dof + 1] = dndy[:, idx]
+        b_local[:, 2, dof] = dndy[:, idx]
+        b_local[:, 2, dof + 1] = dndx[:, idx]
+        b_local[:, :, dof + 2] = -(1.0 / 3.0) * curvature_vec
+
+    t_map = np.zeros((element_count, 9, 9), dtype=np.float64)
+    local_transform = np.swapaxes(np.asarray(basis, dtype=np.float64), 1, 2)
+    for idx in range(3):
+        dof = 3 * idx
+        t_map[:, dof : dof + 3, dof : dof + 3] = local_transform
+
+    return np.einsum("eij,ejk->eik", b_local, t_map)
+
+
+def _shell_bending_edges(
+    nodes: np.ndarray,
+    elems: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    elems = np.asarray(elems, dtype=np.int32)
+    edges = np.concatenate(
+        [
+            elems[:, [0, 1]],
+            elems[:, [1, 2]],
+            elems[:, [2, 0]],
+        ],
+        axis=0,
+    )
+    owners = np.repeat(np.arange(len(elems), dtype=np.int32), 3)
+    sort_order = np.argsort(edges, axis=1)
+    sorted_edges = np.take_along_axis(edges, sort_order, axis=1)
+    unique_edges, inverse = np.unique(sorted_edges, axis=0, return_inverse=True)
+    edge_owners = -np.ones((len(unique_edges), 2), dtype=np.int32)
+    fill = np.zeros((len(unique_edges),), dtype=np.int32)
+    for edge_idx, owner in zip(inverse, owners, strict=False):
+        slot = fill[edge_idx]
+        if slot < 2:
+            edge_owners[edge_idx, slot] = owner
+        fill[edge_idx] += 1
+    edge_lengths = np.linalg.norm(nodes[unique_edges[:, 1]] - nodes[unique_edges[:, 0]], axis=1)
+    return unique_edges, edge_lengths.astype(np.float64), edge_owners
+
+
+def build_pressure_forces(nodes: np.ndarray, faces: np.ndarray, geom: GeometryConfig) -> np.ndarray:
+    tri_pts = np.asarray(nodes, dtype=np.float64)[np.asarray(faces, dtype=np.int32)]
+    centroids = tri_pts.mean(axis=1)
+    normals = copv_normals_np(
+        centroids,
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        dome_height_ratio=geom.dome_height_ratio,
+    )
+    areas = 0.5 * np.linalg.norm(np.cross(tri_pts[:, 1] - tri_pts[:, 0], tri_pts[:, 2] - tri_pts[:, 0]), axis=1)
+    face_forces = geom.pressure * areas[:, None] * normals
+    forces = np.zeros((len(nodes), 3), dtype=np.float64)
+    for idx in range(3):
+        np.add.at(forces, faces[:, idx], face_forces / 3.0)
+    return forces
+
+
+def build_copv_fem_state(
+    nodes: np.ndarray,
+    elems: np.ndarray,
+    material: MaterialConfig,
+    geom: GeometryConfig,
+) -> dict[str, Any]:
+    nodes = np.asarray(nodes, dtype=np.float64)
+    elems = np.asarray(elems, dtype=np.int32)
+    if elems.ndim != 2 or elems.shape[1] != 3:
+        raise ValueError("build_copv_fem_state expects a 2D triangular shell mesh")
+
+    elems = orient_shell_faces(
+        nodes,
+        elems,
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        dome_height_ratio=geom.dome_height_ratio,
+    )
+    areas, element_basis, dndx, dndy = _triangle_geometry(nodes, elems)
+    centroids = nodes[elems].mean(axis=1)
+    surf = copv_surface_projection_np(
+        centroids,
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        dome_height_ratio=geom.dome_height_ratio,
+    )
+    k_meridian, k_hoop = copv_principal_curvatures_np(
+        geom.mid_radius,
+        surf["s"],
+        geom.cylinder_length,
+        geom.opening_radius,
+        dome_height_ratio=geom.dome_height_ratio,
+    )
+    curvature_tensor = _curvature_tensor_in_element_basis(
+        k_meridian,
+        k_hoop,
+        surf["meridian_dirs"],
+        surf["hoop_dirs"],
+        element_basis,
+    )
+    b = _triangle_membrane_kinematics(element_basis, dndx, dndy, curvature_tensor)
+    elem_dofs = (elems[:, :, None] * 3 + np.arange(3, dtype=np.int32)).reshape(len(elems), 9)
+    n_dof = len(nodes) * 3
+
+    rho_nodes = np.linalg.norm(nodes[:, :2], axis=1)
+    opening_z = copv_opening_z(
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
+    support_mask = (rho_nodes <= geom.opening_radius + geom.support_tol) & (np.abs(nodes[:, 2]) >= opening_z - geom.support_tol)
+    fixed_mask = np.tile(support_mask[:, None], (1, 3)).reshape(-1)
+    free_dofs = np.setdiff1d(np.arange(n_dof), np.where(fixed_mask)[0]).astype(np.int32)
+
+    forces = build_pressure_forces(nodes, elems, geom).reshape(-1)
+    node_normals = copv_normals_np(
+        nodes,
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        dome_height_ratio=geom.dome_height_ratio,
+    )
+    bend_edges, bend_edge_lengths, bend_edge_owners = _shell_bending_edges(nodes, elems)
+
+    return {
+        "nodes_np": nodes,
+        "elems_np": elems,
+        "cell_type": "triangle",
+        "element_count": int(len(elems)),
+        "outer_faces": elems,
+        "inner_faces": elems,
+        "support_mask": support_mask,
+        "n_dof": int(n_dof),
+        "elem_dofs": jnp.asarray(elem_dofs),
+        "free_dofs": jnp.asarray(free_dofs),
+        "volumes": jnp.asarray(areas),
+        "areas": jnp.asarray(areas),
+        "b": jnp.asarray(b),
+        "element_basis": jnp.asarray(element_basis),
+        "node_normals": jnp.asarray(node_normals),
+        "bend_edges": jnp.asarray(bend_edges),
+        "bend_edge_lengths": jnp.asarray(bend_edge_lengths),
+        "bend_edge_owners": jnp.asarray(bend_edge_owners),
+        "forces_full": jnp.asarray(forces),
+        "forces_free": jnp.asarray(forces[free_dofs]),
+        "surface_points": jnp.asarray(surf["points"]),
+        "surface_normals": jnp.asarray(surf["normals"]),
+        "meridian_dirs": jnp.asarray(surf["meridian_dirs"]),
+        "hoop_dirs": jnp.asarray(surf["hoop_dirs"]),
+        "surface_rho": jnp.asarray(surf["rho"]),
+        "s_coords": jnp.asarray(surf["s"]),
+        "phi_coords": jnp.asarray(surf["phi"]),
+        "c_mat": jnp.asarray(base_material_tensor(material)),
+    }
+
+
+def _membrane_constitutive_matrices(
+    c_eff: jnp.ndarray,
+    element_basis: jnp.ndarray,
+) -> jnp.ndarray:
+    c_local = jnp.einsum(
+        "eia,ejb,ekc,eld,eabcd->eijkl",
+        element_basis,
+        element_basis,
+        element_basis,
+        element_basis,
+        c_eff,
+    )
+    d_local = c4_to_d6(c_local)
+    membrane_idx = jnp.asarray(MEMBRANE_VOIGT)
+    transverse_idx = jnp.asarray(TRANSVERSE_VOIGT)
+    d_aa = jnp.take(jnp.take(d_local, membrane_idx, axis=1), membrane_idx, axis=2)
+    d_ab = jnp.take(jnp.take(d_local, membrane_idx, axis=1), transverse_idx, axis=2)
+    d_ba = jnp.take(jnp.take(d_local, transverse_idx, axis=1), membrane_idx, axis=2)
+    d_bb = jnp.take(jnp.take(d_local, transverse_idx, axis=1), transverse_idx, axis=2)
+    eye = jnp.broadcast_to(jnp.eye(3, dtype=c_eff.dtype), d_bb.shape)
+    d_bb_inv = jnp.linalg.inv(d_bb + 1e-8 * eye)
+    return d_aa - jnp.einsum("eij,ejk,ekl->eil", d_ab, d_bb_inv, d_ba)
+
+
+def _membrane_strain_stress_local(
     state: dict[str, Any],
     displacement: jnp.ndarray,
     c_eff: jnp.ndarray,
@@ -214,18 +415,45 @@ def element_strain_stress(
     elem_dofs = state["elem_dofs"]
     b = state["b"]
     u_e = displacement[elem_dofs]
-    strain = jnp.einsum("eij,ej->ei", b, u_e)
-    stress = jnp.einsum("eij,ej->ei", c4_to_d6(c_eff), strain)
-    return strain, stress
+    strain_local = jnp.einsum("eij,ej->ei", b, u_e)
+    q_membrane = _membrane_constitutive_matrices(c_eff, state["element_basis"])
+    stress_local = jnp.einsum("eij,ej->ei", q_membrane, strain_local)
+    return strain_local, stress_local
+
+
+def element_strain_stress(
+    state: dict[str, Any],
+    displacement: jnp.ndarray,
+    c_eff: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    strain_local, stress_local = _membrane_strain_stress_local(state, displacement, c_eff)
+    zero = jnp.zeros((state["element_count"],), dtype=displacement.dtype)
+
+    strain_local_tensor = jnp.stack(
+        [
+            jnp.stack([strain_local[:, 0], 0.5 * strain_local[:, 2], zero], axis=-1),
+            jnp.stack([0.5 * strain_local[:, 2], strain_local[:, 1], zero], axis=-1),
+            jnp.stack([zero, zero, zero], axis=-1),
+        ],
+        axis=-2,
+    )
+    stress_local_tensor = jnp.stack(
+        [
+            jnp.stack([stress_local[:, 0], stress_local[:, 2], zero], axis=-1),
+            jnp.stack([stress_local[:, 2], stress_local[:, 1], zero], axis=-1),
+            jnp.stack([zero, zero, zero], axis=-1),
+        ],
+        axis=-2,
+    )
+
+    basis = state["element_basis"]
+    strain_global = jnp.einsum("eia,eab,ejb->eij", basis, strain_local_tensor, basis)
+    stress_global = jnp.einsum("eia,eab,ejb->eij", basis, stress_local_tensor, basis)
+    return tensor_to_engineering_voigt_field(strain_global), tensor_to_stress_voigt_field(stress_global)
 
 
 def hashin_failure_indices(local_stress: jnp.ndarray, allowables: MaterialAllowables) -> dict[str, jnp.ndarray]:
     sigma_11 = local_stress[..., 0, 0]
-    # Transverse stress averaged over the isotropic 2-3 plane of the UD ply.
-    # For membrane-dominated loading away from the boss, sigma_33 is typically
-    # small and this collapses back toward the usual 2D Hashin sigma_22 term.
-    # Near the boss under local triaxial constraint this remains a screening
-    # approximation rather than a full 3D progressive-damage treatment.
     sigma_transverse = 0.5 * (local_stress[..., 1, 1] + local_stress[..., 2, 2])
     tau_12 = local_stress[..., 0, 1]
     tau_13 = local_stress[..., 0, 2]
@@ -423,10 +651,6 @@ def required_friction_coefficient(
 ) -> jnp.ndarray:
     if s_coords.shape[0] < 2:
         return jnp.zeros((1,), dtype=alpha.dtype)
-    # Deviation from Clairaut's theorem, rho * sin(alpha) = const, requires
-    # lateral friction to hold the tow on the commanded path. A geodesic path
-    # has zero required friction everywhere; values above mu_max are penalized
-    # upstream before the winding layout is accepted for export.
     clairaut = rho * jnp.sin(alpha)
     ds = jnp.maximum(jnp.diff(s_coords), regularization)
     dclairaut_ds = jnp.diff(clairaut) / ds
@@ -461,22 +685,52 @@ def make_solve_compliance(state: dict[str, Any], tol: float = 1e-6, maxiter: int
     n_dof = state["n_dof"]
     elem_dofs = state["elem_dofs"]
     free_dofs = state["free_dofs"]
-    volumes = state["volumes"]
+    areas = state["areas"]
     b = state["b"]
+    element_basis = state["element_basis"]
+    node_normals = state["node_normals"]
+    bend_edges = state["bend_edges"]
+    bend_edge_lengths = state["bend_edge_lengths"]
+    bend_edge_owners = state["bend_edge_owners"]
     forces_free = state["forces_free"]
     forces_full = state["forces_full"]
+    bending_scale = 1.0
 
     @jax.jit
-    def solve(c_eff: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-        d = c4_to_d6(c_eff)
+    def _solve(c_eff: jnp.ndarray, thickness: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        q_membrane = _membrane_constitutive_matrices(c_eff, element_basis)
+        thickness_field = jnp.broadcast_to(jnp.reshape(thickness, (-1,)), areas.shape)
+        bend_owner_a = bend_edge_owners[:, 0]
+        bend_owner_b = bend_edge_owners[:, 1]
+        owner_b_safe = jnp.maximum(bend_owner_b, 0)
+        has_owner_b = bend_owner_b >= 0
+        membrane_modulus = jnp.sqrt(jnp.maximum(q_membrane[:, 0, 0] * q_membrane[:, 1, 1], 1e-6))
+        mod_a = membrane_modulus[bend_owner_a]
+        mod_b = jnp.where(has_owner_b, membrane_modulus[owner_b_safe], mod_a)
+        th_a = thickness_field[bend_owner_a]
+        th_b = jnp.where(has_owner_b, thickness_field[owner_b_safe], th_a)
+        edge_modulus = 0.5 * (mod_a + mod_b)
+        edge_thickness = 0.5 * (th_a + th_b)
+        edge_bending = bending_scale * edge_modulus * edge_thickness**3 / (12.0 * jnp.maximum(bend_edge_lengths**2, 1e-6))
 
         def matvec(u_free: jnp.ndarray) -> jnp.ndarray:
             u_full = jnp.zeros((n_dof,), dtype=c_eff.dtype).at[free_dofs].set(u_free)
             u_e = u_full[elem_dofs]
             strain = jnp.einsum("eij,ej->ei", b, u_e)
-            stress = jnp.einsum("eij,ej->ei", d, strain)
-            fint_e = volumes[:, None] * jnp.einsum("eji,ej->ei", b, stress)
+            stress = jnp.einsum("eij,ej->ei", q_membrane, strain)
+            fint_e = (areas * thickness_field)[:, None] * jnp.einsum("eji,ej->ei", b, stress)
             fint_full = jnp.zeros((n_dof,), dtype=c_eff.dtype).at[elem_dofs.reshape(-1)].add(fint_e.reshape(-1))
+
+            u_nodes = u_full.reshape((-1, 3))
+            normal_disp = jnp.einsum("ni,ni->n", u_nodes, node_normals)
+            edge_i = bend_edges[:, 0]
+            edge_j = bend_edges[:, 1]
+            edge_dw = normal_disp[edge_i] - normal_disp[edge_j]
+            edge_force = edge_bending * edge_dw
+            bending_full = jnp.zeros_like(u_nodes)
+            bending_full = bending_full.at[edge_i].add(edge_force[:, None] * node_normals[edge_i])
+            bending_full = bending_full.at[edge_j].add(-edge_force[:, None] * node_normals[edge_j])
+            fint_full = fint_full + bending_full.reshape(-1)
             return fint_full[free_dofs]
 
         u_free, _ = jsp.sparse.linalg.cg(matvec, forces_free, tol=tol, maxiter=maxiter)
@@ -484,15 +738,20 @@ def make_solve_compliance(state: dict[str, Any], tol: float = 1e-6, maxiter: int
         compliance = jnp.vdot(u_full, forces_full)
         return compliance, u_full
 
+    def solve(c_eff: jnp.ndarray, thickness: jnp.ndarray | None = None) -> tuple[jnp.ndarray, jnp.ndarray]:
+        if thickness is None:
+            thickness = jnp.ones((int(state["element_count"]),), dtype=c_eff.dtype)
+        return _solve(c_eff, thickness)
+
     return solve
 
 
 def baseline_response(state: dict[str, Any], material: MaterialConfig, solve_compliance) -> dict[str, jnp.ndarray]:
     element_count = state["element_count"]
     base_thickness = material.base_thickness
-    c_base = jnp.broadcast_to(state["c_mat"], (element_count,) + state["c_mat"].shape)
-    compliance, displacement = solve_compliance(c_base)
+    c_base = rotate_stiffness_field(state["c_mat"], state["meridian_dirs"], state["surface_normals"])
     thickness = jnp.full((element_count,), base_thickness)
+    compliance, displacement = solve_compliance(c_base, thickness)
     density = jnp.ones((element_count,))
     coverage = jnp.zeros((element_count,))
     fiber_dirs = normalize_jax(state["meridian_dirs"] + 1e-8)

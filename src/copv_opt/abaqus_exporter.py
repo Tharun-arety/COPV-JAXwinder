@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from .config import GeometryConfig, MaterialConfig
-from .geometry import classify_copv_boundary_faces, copv_normals_np
+from .geometry import classify_copv_boundary_faces, copv_normals_np, orient_shell_faces
 
 
 def _boundary_faces_with_owners(elems: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -32,7 +32,13 @@ def _orient_outer_faces(nodes: np.ndarray, faces: np.ndarray, geom: GeometryConf
     faces = np.asarray(faces, dtype=np.int32).copy()
     tri_pts = nodes[faces]
     centroids = tri_pts.mean(axis=1)
-    target_normals = copv_normals_np(centroids, geom.outer_radius, geom.cylinder_length)
+    target_normals = copv_normals_np(
+        centroids,
+        geom.outer_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        dome_height_ratio=geom.dome_height_ratio,
+    )
     face_normals = np.cross(tri_pts[:, 1] - tri_pts[:, 0], tri_pts[:, 2] - tri_pts[:, 0])
     flip_mask = np.einsum("ij,ij->i", face_normals, target_normals) < 0.0
     faces[flip_mask] = faces[flip_mask][:, [0, 2, 1]]
@@ -44,10 +50,25 @@ def _surface_shell_mesh(
     elems: np.ndarray,
     geom: GeometryConfig,
 ) -> dict[str, np.ndarray]:
-    boundary_faces, owners = _boundary_faces_with_owners(elems)
-    _, outer_mask, _ = classify_copv_boundary_faces(nodes, boundary_faces, geom)
-    outer_faces = _orient_outer_faces(nodes, boundary_faces[outer_mask], geom)
-    outer_owners = owners[outer_mask]
+    elems = np.asarray(elems, dtype=np.int32)
+    if elems.ndim != 2 or elems.shape[1] not in (3, 4):
+        raise ValueError("export_to_abaqus expects triangle or tetrahedral connectivity")
+
+    if elems.shape[1] == 3:
+        outer_faces = orient_shell_faces(
+            nodes,
+            elems,
+            geom.mid_radius,
+            geom.cylinder_length,
+            geom.opening_radius,
+            dome_height_ratio=geom.dome_height_ratio,
+        )
+        outer_owners = np.arange(len(elems), dtype=np.int32)
+    else:
+        boundary_faces, owners = _boundary_faces_with_owners(elems)
+        _, outer_mask, _ = classify_copv_boundary_faces(nodes, boundary_faces, geom)
+        outer_faces = _orient_outer_faces(nodes, boundary_faces[outer_mask], geom)
+        outer_owners = owners[outer_mask]
 
     unique_nodes = np.unique(outer_faces.reshape(-1))
     node_lookup = {int(node_id): idx + 1 for idx, node_id in enumerate(unique_nodes)}
@@ -80,13 +101,14 @@ def export_to_abaqus(
 ) -> Path:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.unlink(missing_ok=True)
 
     nodes = np.asarray(nodes, dtype=np.float64)
     elems = np.asarray(elems, dtype=np.int32)
     thickness = np.asarray(thickness, dtype=np.float64).reshape(-1)
     fiber_dirs = np.asarray(fiber_dirs, dtype=np.float64)
     if len(thickness) != len(elems):
-        raise ValueError("thickness must be defined per tetrahedral element")
+        raise ValueError("thickness must be defined per shell or solid source element")
     if fiber_dirs.shape != (len(elems), 3):
         raise ValueError("fiber_dirs must have shape (element_count, 3)")
 
@@ -112,7 +134,10 @@ def export_to_abaqus(
         stream.write("*HEADING\n")
         stream.write(f"{heading}\n")
         stream.write("** Exported from copv-optimizer-fw\n")
-        stream.write("** Surface shell extracted from the outer boundary of the tetrahedral COPV mesh.\n")
+        if elems.shape[1] == 3:
+            stream.write("** Surface shell exported directly from the midsurface triangular COPV mesh.\n")
+        else:
+            stream.write("** Surface shell extracted from the outer boundary of the tetrahedral COPV mesh.\n")
         stream.write("*NODE\n")
         for node_idx, point in enumerate(shell_nodes, start=1):
             stream.write(f"{node_idx}, {point[0]:.8f}, {point[1]:.8f}, {point[2]:.8f}\n")
@@ -138,7 +163,8 @@ def export_to_abaqus(
         ):
             a_point = center + e1
             b_point = center + e2
-            stream.write(f"** SOURCE_TET={int(owners[elem_idx - 1]) + 1}\n")
+            source_label = "SOURCE_SHELL" if elems.shape[1] == 3 else "SOURCE_TET"
+            stream.write(f"** {source_label}={int(owners[elem_idx - 1]) + 1}\n")
             stream.write(f"*ELSET, ELSET=ELEM_{elem_idx}\n")
             stream.write(f"{elem_idx}\n")
             stream.write(f"*ORIENTATION, NAME=ORI_{elem_idx}, SYSTEM=RECTANGULAR\n")

@@ -147,6 +147,7 @@ class GeometryConfig:
     cylinder_length: float = 220.0
     thickness: float = 8.0
     opening_radius: float = 10.0
+    dome_height_ratio: float = 0.7
     pressure: float = 1.0
     support_tol: float = 1.5
     mesh_hmin: float = 10.0

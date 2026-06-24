@@ -12,8 +12,6 @@ dependencies = [
     "jax",
     "jaxlib",
     "jaxopt",
-    "torch",
-    "cadquery",
     "gmsh",
     "meshio",
     "numpy",

@@ -190,7 +190,12 @@ def accumulate_weighted_patch_stiffness(
 
 
 def decode_patch_params(raw: jnp.ndarray, config: PatchConfig, geom: GeometryConfig) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    _, _, total_len = copv_meridional_metrics(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+    _, _, total_len = copv_meridional_metrics(
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     margin = max(0.5 * np.hypot(config.length, config.width) + 4.0, 8.0)
     span = max(total_len - 2.0 * margin, 1e-6)
     s_u = jax.nn.sigmoid(raw[: config.count])
@@ -218,6 +223,7 @@ def patch_forward(
         phis,
         geom.cylinder_length,
         geom.opening_radius,
+        geom.dome_height_ratio,
     )
     ca = jnp.cos(alphas)
     sa = jnp.sin(alphas)
@@ -234,14 +240,14 @@ def patch_forward(
     base = material.base_thickness
     added = material.ply_thickness * jnp.sum(weights, axis=0)
     total = jnp.clip(base + added, base * material.density_floor)
-    c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
+    c_base = rotate_stiffness_field(state["c_mat"], state["meridian_dirs"], state["surface_normals"])
     c_add = accumulate_patch_stiffness(weights, fiber_dirs, state["c_mat"], state["surface_normals"])
     c_eff = (
         base * c_base
         + material.ply_thickness * c_add
     ) / total[:, None, None, None, None]
 
-    compliance, displacement = solve_compliance(c_eff)
+    compliance, displacement = solve_compliance(c_eff, total)
     density = total / base
     fiber_combined = normalize_jax(jnp.einsum("pe,pi->ei", weights, fiber_dirs) + 1e-8)
     mass_metric = jnp.sum(total * state["volumes"])
@@ -264,7 +270,12 @@ def patch_forward(
 
 
 def decode_ifp_ctrl(raw: jnp.ndarray, config: IFPConfig, geom: GeometryConfig) -> tuple[jnp.ndarray, jnp.ndarray]:
-    _, _, total_len = copv_meridional_metrics(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+    _, _, total_len = copv_meridional_metrics(
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     margin = 6.0
     span = max(total_len - 2.0 * margin, 1e-6)
     raw_ctrl = raw.reshape(config.ctrl_count, 2)
@@ -297,6 +308,7 @@ def ifp_forward(
             phi,
             geom.cylinder_length,
             geom.opening_radius,
+            geom.dome_height_ratio,
         )
         tangent_seed = pts[1:2] - pts[:1]
         tangents = jnp.concatenate([tangent_seed, pts[1:] - pts[:-1]], axis=0)
@@ -314,13 +326,13 @@ def ifp_forward(
     c_rot = rotate_stiffness_field(state["c_mat"], fiber_dirs, state["surface_normals"])
     base = material.base_thickness
     total = jnp.clip(base + config.tow_thickness * cover, base * material.density_floor)
-    c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
+    c_base = rotate_stiffness_field(state["c_mat"], state["meridian_dirs"], state["surface_normals"])
     c_eff = (
         base * c_base
         + (config.tow_thickness * cover)[:, None, None, None, None] * c_rot
     ) / total[:, None, None, None, None]
 
-    compliance, displacement = solve_compliance(c_eff)
+    compliance, displacement = solve_compliance(c_eff, total)
     density = total / base
     mass_metric = jnp.sum(total * state["volumes"])
     return {
@@ -363,10 +375,10 @@ def winding_forward_angle(
     base = material.base_thickness
     total = jnp.clip(base + config.band_thickness * jnp.ones_like(rho), base * material.density_floor)
     c_rot = rotate_stiffness_field(state["c_mat"], fiber_dirs, state["surface_normals"])
-    c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
+    c_base = rotate_stiffness_field(state["c_mat"], state["meridian_dirs"], state["surface_normals"])
     c_eff = (base * c_base + config.band_thickness * c_rot) / total[:, None, None, None, None]
 
-    compliance, displacement = solve_compliance(c_eff)
+    compliance, displacement = solve_compliance(c_eff, total)
     density = total / base
     coverage = jnp.ones_like(rho)
     mass_metric = jnp.sum(total * state["volumes"])
@@ -418,7 +430,12 @@ def hybrid_patch_center_repulsion_penalty(
 def decode_hybrid_params(raw: jnp.ndarray, config: HybridConfig, geom: GeometryConfig) -> dict[str, jnp.ndarray]:
     winding_n = config.winding_ctrl_count
     patch_n = config.patch_count
-    theta_open, cap_len, total_len = copv_meridional_metrics(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+    theta_open, cap_len, total_len = copv_meridional_metrics(
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     del theta_open, cap_len
     margin = max(0.5 * np.hypot(config.patch_length, config.patch_width) + 4.0, 8.0)
     span = max(total_len - 2.0 * margin, 1e-6)
@@ -462,7 +479,12 @@ def hybrid_friction_samples(
     geom: GeometryConfig,
     config: HybridConfig,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    _, cap_len, total_len = copv_meridional_metrics(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+    _, cap_len, total_len = copv_meridional_metrics(
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     start_s = winding_s_ctrl[0]
     end_s = winding_s_ctrl[-1]
     top_stop = jnp.clip(cap_len, start_s, end_s)
@@ -482,6 +504,7 @@ def hybrid_friction_samples(
         jnp.zeros_like(s_eval),
         geom.cylinder_length,
         geom.opening_radius,
+        geom.dome_height_ratio,
     )
     return s_eval, rho_eval, winding_angle_eval
 
@@ -509,7 +532,12 @@ def control_smoothness_penalty(values: jnp.ndarray, control_s: jnp.ndarray) -> j
 
 def decode_winding_process_params(raw: jnp.ndarray, config: HybridConfig, geom: GeometryConfig) -> dict[str, jnp.ndarray]:
     winding_n = int(config.winding_ctrl_count)
-    _, _, total_len = copv_meridional_metrics(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+    _, _, total_len = copv_meridional_metrics(
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     control_s = jnp.linspace(0.0, total_len, winding_n, dtype=raw.dtype)
 
     angle_lo = np.deg2rad(config.min_angle_deg)
@@ -617,7 +645,12 @@ def winding_process_forward(
     helical_factor = helical_deposition_factor(rho_field, winding_angle, config)
     helical_added_thickness = config.tow_thickness * helical_pass_field * helical_factor
 
-    _, cap_len, _ = copv_meridional_metrics(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+    _, cap_len, _ = copv_meridional_metrics(
+        geom.mid_radius,
+        geom.cylinder_length,
+        geom.opening_radius,
+        geom.dome_height_ratio,
+    )
     cylinder_start = jnp.asarray(cap_len, dtype=raw.dtype)
     cylinder_stop = jnp.asarray(cap_len + geom.cylinder_length, dtype=raw.dtype)
     hoop_window = smooth_window(
@@ -636,6 +669,7 @@ def winding_process_forward(
         control_phi,
         geom.cylinder_length,
         geom.opening_radius,
+        geom.dome_height_ratio,
     )
     rho_ctrl = jnp.maximum(rho_ctrl, rho_floor)
     helical_factor_ctrl = helical_deposition_factor(rho_ctrl, winding_angle_ctrl, config)
@@ -659,7 +693,7 @@ def winding_process_forward(
     )
 
     base = material.base_thickness
-    c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
+    c_base = rotate_stiffness_field(state["c_mat"], state["meridian_dirs"], state["surface_normals"])
     helical_stiffness = rotate_stiffness_field(state["c_mat"], helical_dirs, state["surface_normals"])
     hoop_stiffness = rotate_stiffness_field(state["c_mat"], state["hoop_dirs"], state["surface_normals"])
 
@@ -671,7 +705,7 @@ def winding_process_forward(
         + hoop_added_thickness[:, None, None, None, None] * hoop_stiffness
     ) / total_thickness[:, None, None, None, None]
 
-    compliance, displacement = solve_compliance(c_eff)
+    compliance, displacement = solve_compliance(c_eff, total_thickness)
     density = total_thickness / base
     coverage = winding_thickness / max(float(config.tow_thickness), 1e-6)
     effective_fiber_dirs = normalize_jax(
@@ -825,6 +859,7 @@ def hybrid_forward(
             patch_phi,
             geom.cylinder_length,
             geom.opening_radius,
+            geom.dome_height_ratio,
         )
         ca = jnp.cos(patch_alpha)
         sa = jnp.sin(patch_alpha)
@@ -863,7 +898,7 @@ def hybrid_forward(
         patch_fiber_field = jnp.zeros((state["element_count"], 3), dtype=raw.dtype)
 
     base = material.base_thickness
-    c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
+    c_base = rotate_stiffness_field(state["c_mat"], state["meridian_dirs"], state["surface_normals"])
     winding_stiffness = rotate_stiffness_field(state["c_mat"], winding_dirs, state["surface_normals"])
     total_thickness = jnp.clip(base + winding_thickness + patch_added_thickness, base * material.density_floor)
     c_eff = (
@@ -872,7 +907,7 @@ def hybrid_forward(
         + patch_stiffness
     ) / total_thickness[:, None, None, None, None]
 
-    compliance, displacement = solve_compliance(c_eff)
+    compliance, displacement = solve_compliance(c_eff, total_thickness)
     density = total_thickness / base
     coverage = (winding_thickness + patch_added_thickness) / max(material.ply_thickness, 1e-6)
     effective_fiber_dirs = normalize_jax(
@@ -1282,8 +1317,11 @@ def run_patch_optimization(
     params = initial_patch_params(config) if params0 is None else params0
     history: list[dict[str, Any]] = []
     result = None
-    c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
-    compliance_scale, _ = solve_compliance(c_base)
+    c_base = rotate_stiffness_field(state["c_mat"], state["meridian_dirs"], state["surface_normals"])
+    compliance_scale, _ = solve_compliance(
+        c_base,
+        jnp.full((state["element_count"],), material.base_thickness, dtype=c_base.dtype),
+    )
     for beta in config.beta_schedule:
         loss_fn = lambda raw, beta=beta: patch_objective_from_result(
             patch_forward(raw, state, material, config, geom, beta, solve_compliance),
