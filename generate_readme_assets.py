@@ -137,10 +137,10 @@ def load_vtu_cell_centers(vtu_path: Path) -> np.ndarray:
     mesh = meshio.read(str(vtu_path))
     points = np.asarray(mesh.points, dtype=np.float64)
     for cell_block in mesh.cells:
-        if cell_block.type == "tetra":
+        if cell_block.type in {"triangle", "tetra"}:
             elems = np.asarray(cell_block.data, dtype=np.int32)
             return points[elems].mean(axis=1)
-    raise KeyError(f"No tetrahedral cells were found in {vtu_path}")
+    raise KeyError(f"No triangle or tetrahedral cells were found in {vtu_path}")
 
 
 def scalar_color(value: float, clim: tuple[float, float] | list[float], cmap_name: str) -> tuple[float, float, float]:
@@ -555,6 +555,7 @@ def build_optimization_gif(
         plt.close(fig)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.unlink(missing_ok=True)
     frames[0].save(
         output_path,
         save_all=True,
@@ -660,6 +661,7 @@ def build_winding_comparison_matrix(winding_summary: dict, output_path: Path) ->
     fig.suptitle("Winding-First Optimization Resolves The Failing COPV", fontsize=15)
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.unlink(missing_ok=True)
     fig.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return output_path

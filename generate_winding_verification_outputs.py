@@ -40,7 +40,13 @@ from copv_opt.abaqus_exporter import export_result_to_abaqus
 from copv_opt.config import FailureConfig, FrictionConfig, GeometryConfig, MaterialConfig, WindingOptimizationConfig
 from copv_opt.geometry import ensure_copv_mesh
 from copv_opt.optimize import run_winding_optimization
-from copv_opt.physics import baseline_response, build_copv_fem_state, evaluate_hashin_failure, make_solve_compliance
+from copv_opt.physics import (
+    baseline_response,
+    build_copv_fem_state,
+    evaluate_hashin_failure,
+    make_solve_compliance,
+    rotate_stiffness_field,
+)
 from copv_opt.visualize import (
     build_winding_process_layout_data,
     plot_winding_process_paths,
@@ -138,43 +144,43 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-winding-thickness",
         type=float,
-        default=1.2,
+        default=18.0,
         help="Upper bound on added winding thickness in the optimization model.",
     )
     parser.add_argument(
         "--max-helical-pass-count",
         type=float,
-        default=2.0,
+        default=44.0,
         help="Upper bound on the helical pass-count control.",
     )
     parser.add_argument(
         "--max-hoop-pass-count",
         type=float,
-        default=1.6,
+        default=24.0,
         help="Upper bound on the hoop pass-count control.",
     )
     parser.add_argument(
         "--winding-seed-thickness",
         type=float,
-        default=0.35,
+        default=7.0,
         help="Warm-start added thickness used for the initial winding seed.",
     )
     parser.add_argument(
         "--helical-seed-pass-count",
         type=float,
-        default=0.9,
+        default=14.0,
         help="Warm-start helical pass count used for the initial winding seed.",
     )
     parser.add_argument(
         "--hoop-seed-pass-count",
         type=float,
-        default=0.25,
+        default=2.0,
         help="Warm-start hoop pass count used for the initial winding seed.",
     )
     parser.add_argument(
         "--lbfgs-maxiter",
         type=int,
-        default=240,
+        default=100,
         help="Maximum LBFGS iterations per continuation stage.",
     )
     return parser.parse_args()
@@ -211,12 +217,18 @@ def main() -> None:
 
     step_path = outputs_dir / "copv_shell.step"
     msh_path = outputs_dir / "copv_shell.msh"
-    mesh = ensure_copv_mesh(step_path, msh_path, geom, remesh=args.remesh)
+    mesh = ensure_copv_mesh(
+        step_path,
+        msh_path,
+        geom,
+        remesh=args.remesh,
+        rebuild_step=args.remesh,
+    )
 
     state = build_copv_fem_state(mesh.nodes, mesh.elems, material, geom)
     solve_compliance = make_solve_compliance(state)
     baseline = hostify_tree(baseline_response(state, material, solve_compliance))
-    c_base = jnp.broadcast_to(state["c_mat"], (state["element_count"],) + state["c_mat"].shape)
+    c_base = rotate_stiffness_field(state["c_mat"], state["meridian_dirs"], state["surface_normals"])
     baseline_failure = hostify_tree(
         evaluate_hashin_failure(state, baseline["displacement"], c_base, baseline["fiber_dirs"], failure_cfg)
     )
@@ -227,7 +239,7 @@ def main() -> None:
         mesh.nodes,
         np.asarray(state["outer_faces"]),
         geom,
-        f"Winding-first case mesh: {len(mesh.nodes)} nodes / {len(mesh.elems)} tetra",
+        f"Winding-first case mesh: {len(mesh.nodes)} nodes / {len(mesh.elems)} shell triangles",
         outputs_dir / "winding_first_analysis_mesh.png",
     )
     plt.close(fig)
@@ -358,8 +370,7 @@ def main() -> None:
             pyvista_path = existing if existing.exists() else None
             print(f"Skipped PyVista screenshot refresh: {exc}")
     else:
-        existing = outputs_dir / "pyvista_winding_first_layout.png"
-        pyvista_path = existing if existing.exists() else None
+        pyvista_path = None
 
     abaqus_path = export_result_to_abaqus(
         state,
@@ -408,10 +419,11 @@ def main() -> None:
     mass_ratio = float(np.asarray(winding_result["mass_metric"])) / float(np.asarray(baseline["mass_metric"]))
     summary = {
         "case": "winding_first",
-        "description": "High-pressure winding-first verification where variable-angle winding alone clears the active Hashin limit.",
+        "description": "High-pressure shell-element winding-first verification using a production-scale towpreg thickness envelope.",
         "mesh": {
             "nodes": int(len(mesh.nodes)),
             "elements": int(len(mesh.elems)),
+            "cell_type": "triangle_shell",
             "step": repo_rel(step_path),
             "msh": repo_rel(msh_path),
             "mesh_hmin": float(geom.mesh_hmin),
@@ -512,6 +524,7 @@ def main() -> None:
     }
 
     summary_path = outputs_dir / "winding_first_summary.json"
+    summary_path.unlink(missing_ok=True)
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     print(f"Wrote {summary_path}")

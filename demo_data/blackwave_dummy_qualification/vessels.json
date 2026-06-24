@@ -1,0 +1,9 @@
+{
+  "dataset_type": "dummy_vessel_qualification",
+  "purpose": "Illustrative pipeline demo only",
+  "accepted_tests": 2,
+  "notes": [
+    "Synthetic placeholder evidence file.",
+    "Not real qualification data."
+  ]
+}

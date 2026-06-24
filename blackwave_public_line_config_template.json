@@ -1,0 +1,90 @@
+{
+  "line_name": "BLACKWAVE_PUBLIC_TARGET_PROFILE",
+  "qualification_standard": null,
+  "material": {
+    "material_name": "BLACKWAVE_PUBLIC_PLACEHOLDER_MATERIAL",
+    "tow_width_mm": 12.0,
+    "tow_thickness_mm": 0.3,
+    "storage_temperature_c": null,
+    "max_out_time_h": null,
+    "deposition_temperature_window_c": null,
+    "allowable_tension_window_n": null,
+    "cure_kinetics_reference": null,
+    "notes": [
+      "Tow width and tow thickness here are repo defaults, not public Blackwave data.",
+      "Replace every null or placeholder value with Blackwave-qualified process data before using release decisions."
+    ]
+  },
+  "machine": {
+    "machine_name": "BLACKWAVE_PUBLIC_PLACEHOLDER_WINDER",
+    "axis_count": 4,
+    "controller_family": null,
+    "nominal_head_speed_mm_s": null,
+    "max_head_speed_mm_s": null,
+    "max_mandrel_rpm": null,
+    "min_turning_radius_mm": null,
+    "min_restart_spacing_mm": null,
+    "supports_tow_cut_restart": false,
+    "supports_closed_loop_tension_control": false,
+    "notes": [
+      "Public Blackwave site confirms production capability, but does not publish machine limits."
+    ]
+  },
+  "heating_compaction": {
+    "heater_type": "BLACKWAVE_PUBLIC_PLACEHOLDER",
+    "target_heater_setpoint_c": null,
+    "max_heater_setpoint_c": null,
+    "target_compaction_force_n": null,
+    "compaction_roller_width_mm": null,
+    "notes": [
+      "Replace with the actual deposition head hardware and qualified setpoint windows."
+    ]
+  },
+  "cure": {
+    "cycle_name": "UNSPECIFIED_CURE",
+    "steps": [],
+    "post_cure_required": false,
+    "notes": [
+      "Populate with Blackwave cure ramps, holds, tolerances and release criteria."
+    ]
+  },
+  "autofrettage": {
+    "target_pressure": null,
+    "hold_time_min": null,
+    "liner_yield_pressure": null,
+    "residual_stress_model": null,
+    "notes": [
+      "Populate with the Blackwave autofrettage definition or delete if the target product does not use this step."
+    ]
+  },
+  "inspection": {
+    "inline_sensor_type": "UNSPECIFIED",
+    "max_gap_mm": null,
+    "max_overlap_mm": null,
+    "max_wrinkle_height_mm": null,
+    "max_void_fraction_pct": null,
+    "final_ndi_method": null,
+    "notes": [
+      "Populate with the real Blackwave inline inspection stack and final release NDI method."
+    ]
+  },
+  "qualification": {
+    "coupon_dataset_path": null,
+    "subcomponent_dataset_path": null,
+    "vessel_dataset_path": null,
+    "required_coupon_tests": null,
+    "required_subcomponent_tests": null,
+    "required_vessel_tests": null,
+    "accepted_coupon_tests": 0,
+    "accepted_subcomponent_tests": 0,
+    "accepted_vessel_tests": 0,
+    "notes": [
+      "Link the data paths or evidence references used by Blackwave to close release decisions."
+    ]
+  },
+  "notes": [
+    "This file mirrors copv_opt.production.ProductionLineConfig and is the Blackwave data handoff point into the optimizer.",
+    "Public Blackwave website language indicates high-performance COPVs for spaceflight, off-the-shelf space tanks made in Germany, headquarters in Taufkirchen, and a production site in Garching.",
+    "Keep the public notes if useful, but replace placeholders with real line data before using this repo for production decisions."
+  ]
+}

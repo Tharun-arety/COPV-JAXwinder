@@ -1,0 +1,114 @@
+{
+  "line_name": "BLACKWAVE_DUMMY_DEMO_LINE",
+  "qualification_standard": "DUMMY-SPACE-COPV-QUAL-001",
+  "material": {
+    "material_name": "DUMMY_CF_TOWPREG_12MM",
+    "tow_width_mm": 12.0,
+    "tow_thickness_mm": 0.3,
+    "storage_temperature_c": -18.0,
+    "max_out_time_h": 12.0,
+    "deposition_temperature_window_c": [
+      80.0,
+      110.0
+    ],
+    "allowable_tension_window_n": [
+      25.0,
+      45.0
+    ],
+    "cure_kinetics_reference": "dummy_material_datasheet_rev_a",
+    "notes": [
+      "Illustrative demo values only.",
+      "Do not use for production release decisions."
+    ]
+  },
+  "machine": {
+    "machine_name": "DUMMY_4AXIS_COPV_WINDER",
+    "axis_count": 4,
+    "controller_family": "DUMMY_NC",
+    "nominal_head_speed_mm_s": 140.0,
+    "max_head_speed_mm_s": 220.0,
+    "max_mandrel_rpm": 60.0,
+    "min_turning_radius_mm": 10.0,
+    "min_restart_spacing_mm": 30.0,
+    "supports_tow_cut_restart": true,
+    "supports_closed_loop_tension_control": true,
+    "notes": [
+      "Illustrative demo values only."
+    ]
+  },
+  "heating_compaction": {
+    "heater_type": "IR_PLUS_ROLLER",
+    "target_heater_setpoint_c": 95.0,
+    "max_heater_setpoint_c": 140.0,
+    "target_compaction_force_n": 180.0,
+    "compaction_roller_width_mm": 20.0,
+    "notes": [
+      "Illustrative demo values only."
+    ]
+  },
+  "cure": {
+    "cycle_name": "DUMMY_CURE_CYCLE_V1",
+    "steps": [
+      {
+        "name": "RAMP_TO_80C",
+        "target_temp_c": 80.0,
+        "ramp_rate_c_per_min": 2.0,
+        "hold_time_min": 20.0
+      },
+      {
+        "name": "RAMP_TO_120C",
+        "target_temp_c": 120.0,
+        "ramp_rate_c_per_min": 1.5,
+        "hold_time_min": 45.0
+      },
+      {
+        "name": "CONTROLLED_COOL",
+        "target_temp_c": 40.0,
+        "ramp_rate_c_per_min": -2.0,
+        "hold_time_min": 0.0
+      }
+    ],
+    "post_cure_required": true,
+    "notes": [
+      "Illustrative demo values only."
+    ]
+  },
+  "autofrettage": {
+    "target_pressure": 10.5,
+    "hold_time_min": 15.0,
+    "liner_yield_pressure": 8.5,
+    "residual_stress_model": "dummy_elastoplastic_model",
+    "notes": [
+      "Illustrative demo values only."
+    ]
+  },
+  "inspection": {
+    "inline_sensor_type": "VISION_PLUS_LASER",
+    "max_gap_mm": 0.08,
+    "max_overlap_mm": 0.05,
+    "max_wrinkle_height_mm": 0.25,
+    "max_void_fraction_pct": 1.5,
+    "final_ndi_method": "CT_PLUS_UT",
+    "notes": [
+      "Illustrative demo values only."
+    ]
+  },
+  "qualification": {
+    "coupon_dataset_path": "demo_data/blackwave_dummy_qualification/coupons.json",
+    "subcomponent_dataset_path": "demo_data/blackwave_dummy_qualification/subcomponents.json",
+    "vessel_dataset_path": "demo_data/blackwave_dummy_qualification/vessels.json",
+    "required_coupon_tests": 6,
+    "required_subcomponent_tests": 3,
+    "required_vessel_tests": 2,
+    "accepted_coupon_tests": 6,
+    "accepted_subcomponent_tests": 3,
+    "accepted_vessel_tests": 2,
+    "notes": [
+      "Illustrative demo values only."
+    ]
+  },
+  "notes": [
+    "This file is an illustrative dummy configuration used only to demonstrate that the pipeline reacts to filled line data.",
+    "It is intentionally synthetic and must not be confused with Blackwave proprietary production data."
+  ]
+}
