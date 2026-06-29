@@ -44,25 +44,55 @@ python -m app.cli --volume 9 --pressure 300 --radius 100 --optimize --json
 ## How it fits together
 
 ```
-requirement (V, P, R)                app/sizing.py     -> GeometryConfig
+requirement (V, P, R)                app/sizing.py        -> GeometryConfig
         │
         ▼
-mesh + FEA state (cached per geom)    app/engine.py     -> copv_opt solver
+mesh + FEA state (cached per geom)    app/engine.py        -> copv_opt solver
         │
         ├── fast_screen   (winding_forward_angle + Hashin)
         └── full_optimize (run_winding_optimization)
         │
         ▼
 DesignResult + release gate           app/main.py / cli.py
+        │
+        ├── app/project.py      catalog of designed tanks (save/load/list)
+        ├── app/geometry_io.py  STEP export · liner mass
+        ├── app/course.py       discrete course plan · kinematic demand · NC CSV
+        ├── app/solver_export.py Abaqus .inp · CalculiX run
+        ├── app/calibration.py  coupon allowables -> re-screen -> gate delta
+        └── app/report.py       standalone HTML design report
 ```
 
 `burst factor = 1 / sqrt(FI_max)` — Hashin indices are quadratic in stress and
 stress is linear in pressure, so this is the pressure multiple that drives the
 failure index to 1.
 
-## Scope
+## Full pipeline (CLI)
 
-This is Phase 0: it proves the integration thesis — a spec-driven front door over
-the differentiable engine with a real 3D viewport. It deliberately does **not** yet
-include CAD import, machine kinematics/collision, an NC post-processor, or coupon
-calibration. Those are later phases.
+```bash
+python -m app.cli --volume 9 --pressure 300 --radius 100 --optimize \
+    --course --export-step out/tank.step --liner 3.0 \
+    --export-abaqus out/tank.inp --report out/tank.html \
+    --save-project "9L 300bar" --store out/catalog
+
+python -m app.cli --list --store out/catalog          # browse the catalog
+python -m app.cli ... --allowables coupons.json        # calibrate to coupon data
+```
+
+## What is real vs. scaffolded
+
+Real and verified: requirement sizing, fast screen + full optimization, project
+catalog, STEP export, first-order liner mass, discrete course plan, first-order
+kinematic demand, machine-neutral NC CSV, Abaqus `.inp` export, CalculiX
+auto-detect/run, coupon-allowables calibration, HTML report.
+
+Honest gaps (blocked on external input, not yet built):
+- **Arbitrary mandrel import** — the FEA state builder is specialized to the
+  parametric ellipsoidal COPV. `geometry_io.import_mandrel` raises rather than
+  meshing something the physics can't interpret.
+- **Machine-specific NC post + true collision** — needs the actual machine
+  definition; `MachineLimits` fields default to "not supplied".
+- **Real coupon allowables and a CalculiX/Ansys binary** — the mechanisms are
+  wired; the data and solver are external.
+
+The `do_not_release` gate stays closed until those are supplied. That is correct.

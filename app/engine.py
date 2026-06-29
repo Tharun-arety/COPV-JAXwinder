@@ -70,6 +70,12 @@ class DesignResult:
     angle_deg: float | None                 # constant angle, fast screen only
     disp_max: float
     gate: dict[str, Any] = field(default_factory=dict)
+    # Engine handles for downstream phases (not serialized; in-process only).
+    geom: Any = None
+    material: Any = None
+    state: Any = None                       # FEA state dict
+    winding_result: Any = None              # hostified optimizer result (full_optimize only)
+    layout: Any = None                      # winding process layout (full_optimize only)
 
 
 def release_gate(fi_max: float, mu_max_required: float | None, mu_allowable: float) -> dict[str, Any]:
@@ -104,6 +110,18 @@ def release_gate(fi_max: float, mu_max_required: float | None, mu_allowable: flo
 
 def _burst_factor(fi_max: float) -> float:
     return float(1.0 / np.sqrt(max(fi_max, 1e-12)))
+
+
+def hostify(tree: Any) -> Any:
+    """Recursively pull JAX arrays back to host NumPy. Mirrors the verification
+    scripts' hostify_tree so downstream visualize/course helpers get plain arrays."""
+    if isinstance(tree, dict):
+        return {k: hostify(v) for k, v in tree.items()}
+    if isinstance(tree, (list, tuple)):
+        return type(tree)(hostify(v) for v in tree)
+    if hasattr(tree, "__array__") and not isinstance(tree, np.ndarray):
+        return np.asarray(tree)
+    return tree
 
 
 # ---------------------------------------------------------------------------
@@ -171,9 +189,15 @@ def fast_screen(
     angle_deg: float,
     band_thickness: float,
     friction_cfg: FrictionConfig | None = None,
+    failure_cfg: FailureConfig | None = None,
 ) -> DesignResult:
-    """One constant-angle forward solve + Hashin evaluation. Seconds, interactive."""
+    """One constant-angle forward solve + Hashin evaluation. Seconds, interactive.
+
+    ``failure_cfg`` carries the allowables — pass a calibrated FailureConfig (see
+    app.calibration) to screen against coupon-derived strengths instead of the
+    literature defaults."""
     friction = FrictionConfig() if friction_cfg is None else friction_cfg
+    failure = FailureConfig(margin_of_safety=1.0) if failure_cfg is None else failure_cfg
     bundle = build_state(geom, material)
     state, solve = bundle["state"], bundle["solve"]
 
@@ -189,10 +213,8 @@ def fast_screen(
     total = res["thickness"]
     c_eff = (base * c_base + band_thickness * c_rot) / total[:, None, None, None, None]
 
-    failure = evaluate_hashin_failure(
-        state, res["displacement"], c_eff, res["fiber_dirs"], FailureConfig(margin_of_safety=1.0)
-    )
-    fi = np.asarray(failure["failure_index"], dtype=np.float64)
+    failure_metrics = evaluate_hashin_failure(state, res["displacement"], c_eff, res["fiber_dirs"], failure)
+    fi = np.asarray(failure_metrics["failure_index"], dtype=np.float64)
     fi_max = float(np.max(fi))
     disp = np.asarray(res["displacement"], dtype=np.float64).reshape(-1, 3)
 
@@ -210,6 +232,9 @@ def fast_screen(
         angle_deg=float(angle_deg),
         disp_max=float(np.max(np.linalg.norm(disp, axis=1))),
         gate=release_gate(fi_max, None, friction.mu_max),
+        geom=geom,
+        material=material,
+        state=state,
     )
 
 
@@ -244,11 +269,18 @@ def full_optimize(
     run = run_winding_optimization(
         state, material, cfg, geom, solve, failure_config=failure, friction_config=friction
     )
-    result = run["result"]
+    result = hostify(run["result"])
     fi = np.asarray(result["failure_index"], dtype=np.float64)
     fi_max = float(np.asarray(result["fi_max"]))
     mu = float(np.asarray(result["mu_max_required"]))
     disp = np.asarray(result["displacement"], dtype=np.float64).reshape(-1, 3)
+
+    # Build the winding process layout now so course planning / NC export downstream
+    # have it without re-running the optimizer. Imported lazily to avoid the heavy
+    # visualize import for callers that only screen.
+    from copv_opt.visualize import build_winding_process_layout_data
+
+    layout = build_winding_process_layout_data(result, geom, family_count=8, sample_count=320)
 
     return DesignResult(
         mode="full_optimize",
@@ -264,4 +296,9 @@ def full_optimize(
         angle_deg=None,
         disp_max=float(np.max(np.linalg.norm(disp, axis=1))),
         gate=release_gate(fi_max, mu, friction.mu_max),
+        geom=geom,
+        material=material,
+        state=state,
+        winding_result=result,
+        layout=layout,
     )
