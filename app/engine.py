@@ -238,6 +238,76 @@ def fast_screen(
     )
 
 
+def screen_profile(
+    profile,
+    geom: GeometryConfig,
+    material: MaterialConfig,
+    angle_deg: float,
+    band_thickness: float,
+    work_dir: Any = None,
+    friction_cfg: FrictionConfig | None = None,
+    failure_cfg: FailureConfig | None = None,
+) -> DesignResult:
+    """Screen an arbitrary axisymmetric mandrel given by a MeridianProfile.
+
+    Meshes the revolved meridian, builds a general FEA state (validated against the
+    parametric COPV — see app/validate_general.py), and runs the same constant-angle
+    forward solve + Hashin screen. ``geom`` supplies pressure and a representative
+    radius for the winding-angle field.
+
+    KNOWN LIMITATION: the *physics* is validated to ~1.6% against the analytic COPV on
+    an identical mesh, but this self-meshed path under-resolves the polar-opening stress
+    concentration — the revolved BSpline rounds the boss more than the analytic cap, so
+    absolute FI runs lower (non-conservative) than the parametric boss-refined path
+    (~46% lower on the COPV case). Use fast_screen/full_optimize for absolute COPV
+    screening; use this path for arbitrary-shape exploration and relative comparison
+    until the boss meshing / revolve fidelity is improved."""
+    import tempfile
+
+    from app.general_state import build_general_fem_state
+    from app.meridian_mesh import mesh_meridian
+
+    friction = FrictionConfig() if friction_cfg is None else friction_cfg
+    failure = FailureConfig(margin_of_safety=1.0) if failure_cfg is None else failure_cfg
+    work = Path(work_dir) if work_dir is not None else Path(tempfile.mkdtemp(prefix="copv_meridian_"))
+
+    nodes, elems = mesh_meridian(profile, work, hmin=geom.mesh_hmin, hmax=geom.mesh_hmax)
+    state = build_general_fem_state(nodes, elems, material, profile, geom.pressure, geom.support_tol)
+    solve = make_solve_compliance(state)
+
+    res = winding_forward_angle(
+        angle_deg, state, material, WindingConfig(band_thickness=band_thickness), geom, solve
+    )
+    base = material.base_thickness
+    c_base = rotate_stiffness_field(state["c_mat"], state["meridian_dirs"], state["surface_normals"])
+    c_rot = rotate_stiffness_field(state["c_mat"], res["fiber_dirs"], state["surface_normals"])
+    total = res["thickness"]
+    c_eff = (base * c_base + band_thickness * c_rot) / total[:, None, None, None, None]
+    failure_metrics = evaluate_hashin_failure(state, res["displacement"], c_eff, res["fiber_dirs"], failure)
+    fi = np.asarray(failure_metrics["failure_index"], dtype=np.float64)
+    fi_max = float(np.max(fi))
+    disp = np.asarray(res["displacement"], dtype=np.float64).reshape(-1, 3)
+
+    return DesignResult(
+        mode="profile_screen",
+        nodes=np.asarray(nodes, dtype=np.float64),
+        elems=np.asarray(elems, dtype=np.int64),
+        failure_index=fi,
+        fi_max=fi_max,
+        burst_factor=_burst_factor(fi_max),
+        mass_metric=float(np.asarray(res["mass_metric"])),
+        mass_delta_percent=None,
+        mu_max_required=None,
+        mu_allowable=friction.mu_max,
+        angle_deg=float(angle_deg),
+        disp_max=float(np.max(np.linalg.norm(disp, axis=1))),
+        gate=release_gate(fi_max, None, friction.mu_max),
+        geom=geom,
+        material=material,
+        state=state,
+    )
+
+
 def full_optimize(
     geom: GeometryConfig,
     material: MaterialConfig,

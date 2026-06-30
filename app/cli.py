@@ -71,8 +71,51 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--run-ccx", action="store_true", help="Run CalculiX on the exported deck if ccx is on PATH")
     p.add_argument("--allowables", type=Path, default=None, help="Coupon allowables (JSON/CSV) -> calibrated re-screen")
 
+    p.add_argument("--profile", type=Path, default=None,
+                   help="Screen an arbitrary axisymmetric mandrel from a CSV of rho,z meridian points "
+                        "(needs --pressure and --radius; bypasses requirement sizing)")
+
     p.add_argument("--json", action="store_true", help="Emit a JSON report instead of text")
     return p.parse_args()
+
+
+def _run_profile(args) -> None:
+    """Screen an arbitrary axisymmetric mandrel from a meridian CSV."""
+    import csv as _csv
+
+    import numpy as _np
+
+    from app.engine import screen_profile
+    from app.meridian import MeridianProfile
+    from copv_opt.config import GeometryConfig
+
+    if args.pressure is None or args.radius is None:
+        raise SystemExit("--profile needs --pressure and --radius")
+    rows = []
+    text = Path(args.profile).read_text(encoding="utf-8-sig")
+    for row in _csv.reader(text.splitlines()):
+        if len(row) < 2:
+            continue
+        try:
+            rows.append((float(row[0]), float(row[1])))
+        except ValueError:
+            continue   # skip header
+    if len(rows) < 4:
+        raise SystemExit(f"need >= 4 (rho,z) points in {args.profile}; got {len(rows)}")
+    profile = MeridianProfile.from_points(_np.asarray(rows))
+    geom = GeometryConfig(outer_radius=args.radius, thickness=args.thickness,
+                          opening_radius=args.opening, pressure=args.pressure * 0.1)
+    material = MaterialConfig()
+    result = screen_profile(profile, geom, material, args.angle, args.band)
+    out = {
+        "mode": result.mode,
+        "meridian_total_length_mm": round(profile.total_len, 2),
+        "fi_max": round(result.fi_max, 4),
+        "burst_factor": round(result.burst_factor, 4),
+        "disp_max_mm": round(result.disp_max, 4),
+        "gate": result.gate,
+    }
+    print(json.dumps(out, indent=2))
 
 
 def _require_requirement(args) -> None:
@@ -104,6 +147,10 @@ def main() -> None:
         if args.store is None:
             raise SystemExit("--list needs --store DIR")
         _run_listing(args.store)
+        return
+
+    if args.profile is not None:
+        _run_profile(args)
         return
 
     _require_requirement(args)

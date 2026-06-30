@@ -86,10 +86,19 @@ catalog, STEP export, first-order liner mass, discrete course plan, first-order
 kinematic demand, machine-neutral NC CSV, Abaqus `.inp` export, CalculiX
 auto-detect/run, coupon-allowables calibration, HTML report.
 
+**General axisymmetric geometry** (`app/meridian.py`, `app/general_state.py`,
+`app/meridian_mesh.py`): an arbitrary axisymmetric mandrel — any meridian profile,
+not just the parametric COPV — can be meshed and screened (`engine.screen_profile`,
+CLI `--profile rho_z.csv`). The general FEA path is **validated to ~1.6%** against
+the analytic COPV on an identical mesh (`python -m app.validate_general`). Known
+limitation: the self-meshed path under-resolves the polar-opening stress
+concentration, so its absolute FI runs lower than the parametric boss-refined path
+(~46% on the COPV case) — use it for arbitrary-shape exploration and relative
+comparison; use the parametric path for absolute COPV screening.
+
 Honest gaps (blocked on external input, not yet built):
-- **Arbitrary mandrel import** — the FEA state builder is specialized to the
-  parametric ellipsoidal COPV. `geometry_io.import_mandrel` raises rather than
-  meshing something the physics can't interpret.
+- **CAD file import (STEP/IGES) of a non-axisymmetric mandrel** — the engine is
+  axisymmetric; truly general 3-D mandrels need a different state builder.
 - **Machine-specific NC post + true collision** — needs the actual machine
   definition; `MachineLimits` fields default to "not supplied".
 - **Real coupon allowables and a CalculiX/Ansys binary** — the mechanisms are
