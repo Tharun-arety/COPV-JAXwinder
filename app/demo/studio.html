@@ -62,6 +62,12 @@
   .vp-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:#eef2f6;background:#1b212bdd;
     border:1px solid #3a414b;border-radius:6px;padding:7px 14px;font-size:12px}
   .vp-hint.hidden{display:none}
+  .optpanel{position:absolute;right:14px;bottom:14px;width:288px;background:#1b212bf2;border:1px solid #3a414b;
+    border-radius:8px;padding:10px 12px;color:#dfe4ea}
+  .optpanel.hidden{display:none}
+  .opt-h{font-size:12px;font-weight:600;margin-bottom:4px}
+  .opt-read{font-size:11.5px;color:#c3ccd6;margin-top:4px;line-height:1.5}
+  #optchart{width:100%;height:auto;display:block}
   .status{background:var(--bar);border-top:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:0 12px;color:var(--muted);font-size:11.5px}
   .status .gate{margin-left:auto;color:#e0a23a;font-weight:600}
   .status b{color:var(--ink);font-weight:600}
@@ -88,7 +94,8 @@
     <div class="sep"></div>
     <span class="lbl">Result:</span>
     <div class="tbtn" id="result-label" style="color:var(--ink)">Failure index</div>
-    <div class="tbtn solve" id="solve"><svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9z"/></svg>Solve</div>
+    <div class="tbtn solve" id="optimize"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 3 6-8"/></svg>Optimize winding</div>
+    <div class="tbtn" id="solve"><svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9z"/></svg>Solve</div>
   </div>
 
   <div class="main">
@@ -120,7 +127,12 @@
         <div class="barwrap"><div class="bar"></div><div class="ticks" id="ticks"></div></div>
       </div>
       <div class="overlay hidden" id="overlay"><div class="spinner"></div><div class="ov-steps" id="ovsteps">Assembling stiffness…</div></div>
-      <div class="vp-hint" id="vphint">Drag to orbit · press <b>Solve</b> for the stress result</div>
+      <div class="vp-hint" id="vphint">Drag to orbit · press <b>Optimize winding</b> to find the best angle</div>
+      <div class="optpanel hidden" id="optpanel">
+        <div class="opt-h">Winding-angle optimization</div>
+        <svg id="optchart" viewBox="0 0 270 148"></svg>
+        <div class="opt-read" id="optread"></div>
+      </div>
     </div>
   </div>
 
@@ -143,7 +155,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const R=1.0, HALF=1.1, DOME=0.7, OPEN=0.12, R0H=0.30;   // geometry + helical turnaround radius
+const R=1.0, HALF=1.1, DOME=0.7, OPEN=0.12;   // geometry
 const FIELDS = {
   fi:    { title:'Failure index (Hashin)', legend:'Failure index', unit:'', min:0, max:0.49,
            sub:'Type: max envelope', fn:(r,y)=> Math.min(0.49, 0.12+0.37*Math.exp(-Math.pow((Math.abs(y)-1.06)/0.14,2))) },
@@ -204,18 +216,22 @@ function buildHelical(r0, offset, hand, phi0){
 }
 const towMat=new THREE.MeshStandardMaterial({color:0x14201c,metalness:0.2,roughness:0.55});
 const hoopMat=new THREE.MeshStandardMaterial({color:0x1d2a25,metalness:0.2,roughness:0.55});
-function buildWinding(){
-  windGroup.clear();
+let windAngle=35;
+function clearWind(){ windGroup.children.forEach(m=>m.geometry&&m.geometry.dispose()); windGroup.clear(); }
+function buildWinding(alphaDeg){
+  windAngle=alphaDeg; clearWind();
+  const r0=Math.max(OPEN*1.1, R*Math.sin(alphaDeg*Math.PI/180));
   const N=18;
   for(let hand of [1,-1]) for(let k=0;k<N;k++){
-    const c=buildHelical(R0H, 0.03, hand, k*2*Math.PI/N); if(!c) continue;
+    const c=buildHelical(r0, 0.03, hand, k*2*Math.PI/N); if(!c) continue;
     windGroup.add(new THREE.Mesh(new THREE.TubeGeometry(c,140,0.016,6,false), towMat));
   }
   for(let i=0;i<12;i++){ const z=-HALF*0.92 + (2*HALF*0.92)*i/11;
     const ring=new THREE.Mesh(new THREE.TorusGeometry(R+0.055,0.02,8,80), hoopMat);
     ring.rotation.x=Math.PI/2; ring.position.y=z; windGroup.add(ring); }
+  const el=document.getElementById('alpha'); if(el) el.textContent=Math.round(alphaDeg);
 }
-buildWinding();
+buildWinding(35);
 
 const axes=new THREE.AxesHelper(0.6); axes.position.set(-1.4,-1.95,0); scene.add(axes);
 
@@ -283,7 +299,7 @@ document.getElementById('typeBtn').onclick=function(){
 // ---- solve ----
 const ov=document.getElementById('overlay'), ovs=document.getElementById('ovsteps');
 const steps=['Assembling stiffness…','Solving CG system…','Evaluating Hashin failure…','Computing burst factor…'];
-document.getElementById('solve').onclick=()=>{
+function runSolve(){
   document.getElementById('vphint').classList.add('hidden');
   solved=false; ov.classList.remove('hidden'); let i=0; ovs.textContent=steps[0];
   const t=setInterval(()=>{ i++;
@@ -291,7 +307,48 @@ document.getElementById('solve').onclick=()=>{
     else{ clearInterval(t); ov.classList.add('hidden'); solved=true;
       document.getElementById('legend').classList.remove('hidden');
       overMat.opacity=0.92; setField(current); } }, 560);
-};
+}
+document.getElementById('solve').onclick=runSolve;
+
+// ---- winding-angle optimization: minimise compliance subject to the Clairaut friction limit ----
+const MU_LIMIT=0.15;
+const mu = a => MU_LIMIT*Math.pow(15/a, 1.6);          // required friction rises as the angle steepens
+const Jc = a => 1 + Math.pow((a-13)/22, 2);            // compliance surrogate (lower = stiffer)
+const Jtot = a => Jc(a) + 60*Math.pow(Math.max(0, mu(a)-MU_LIMIT), 2);
+const ease = x => 1-Math.pow(1-x,3);
+function argminFeasible(){ let b=1e9, ba=20; for(let a=9;a<=50;a+=0.2){ const t=Jtot(a); if(t<b){b=t;ba=a;} } return Math.round(ba*10)/10; }
+const ax=a=>32+(a-9)/41*226, ay=j=>122-(j-1)/1.6*108;
+function drawChart(){
+  const aMin=15; let s='';
+  s+=`<rect x="${ax(9)}" y="8" width="${(ax(aMin)-ax(9)).toFixed(1)}" height="114" fill="#a32d2d" opacity="0.18"/>`;
+  s+=`<text x="${((ax(9)+ax(aMin))/2).toFixed(0)}" y="20" fill="#e7a3a3" font-size="8" text-anchor="middle">slips (μ&gt;0.15)</text>`;
+  let p=''; for(let a=9;a<=50;a++) p+=`${ax(a).toFixed(1)},${ay(Jc(a)).toFixed(1)} `;
+  s+=`<polyline points="${p}" fill="none" stroke="#7fb0e0" stroke-width="1.6"/>`;
+  s+=`<line x1="32" y1="122" x2="258" y2="122" stroke="#566270" stroke-width="1"/>`;
+  s+=`<text x="145" y="140" fill="#9aa4b1" font-size="8" text-anchor="middle">helical angle (deg)</text>`;
+  s+=`<text x="11" y="64" fill="#9aa4b1" font-size="8" transform="rotate(-90 11 64)" text-anchor="middle">compliance</text>`;
+  s+=`<circle id="optdot" cx="${ax(35).toFixed(1)}" cy="${ay(Jc(35)).toFixed(1)}" r="4" fill="#1d9e75" stroke="#fff" stroke-width="1"/>`;
+  document.getElementById('optchart').innerHTML=s;
+}
+function moveDot(a){ const d=document.getElementById('optdot'); if(d){ d.setAttribute('cx',ax(a).toFixed(1)); d.setAttribute('cy',ay(Jc(a)).toFixed(1)); } }
+function optRead(a,done){
+  const m=mu(a), ok=m<=MU_LIMIT+1e-9, el=document.getElementById('optread');
+  if(!done) el.innerHTML=`α <b>${a.toFixed(1)}°</b> · compliance <b>${Jc(a).toFixed(2)}</b> · μ <b style="color:${ok?'#5dcaa5':'#e88a8a'}">${m.toFixed(3)}</b> ${ok?'✓':'✗'}`;
+  else { const red=Math.round((Jc(35)-Jc(a))/Jc(35)*100);
+    el.innerHTML=`<b style="color:#5dcaa5">Optimal α ${a.toFixed(0)}°</b> · compliance −${red}% · μ ${mu(a).toFixed(3)} (limit 0.15) · burst 1.43×`; }
+}
+function runOptimize(){
+  document.getElementById('vphint').classList.add('hidden');
+  document.getElementById('optpanel').classList.remove('hidden');
+  drawChart();
+  const aStar=argminFeasible(), a0=35, K=16; let k=0;
+  buildWinding(a0); moveDot(a0); optRead(a0,false);
+  const t=setInterval(()=>{ k++; const a=a0+(aStar-a0)*ease(k/K);
+    buildWinding(a); moveDot(a); optRead(a,false);
+    if(k>=K){ clearInterval(t); buildWinding(aStar); moveDot(aStar); optRead(aStar,true); runSolve(); }
+  }, 230);
+}
+document.getElementById('optimize').onclick=runOptimize;
 
 paint('fi'); updateLegend('fi');
 </script>
