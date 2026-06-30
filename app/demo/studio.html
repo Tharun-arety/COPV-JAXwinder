@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COPV Studio — simulation viewer</title>
+<style>
+  :root{
+    --bar:#23272e; --bar2:#2b3038; --panel:#262b33; --line:#3a414b; --ink:#dfe4ea;
+    --muted:#9aa4b1; --accent:#1d9e75; --accentd:#0f6e56; --sel:#34506b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:"Segoe UI",system-ui,sans-serif;color:var(--ink);
+    background:#1b1f25;font-size:13px;overflow:hidden}
+  #app{display:grid;grid-template-rows:30px 38px 1fr 24px;height:100vh}
+  /* title + menu */
+  .titlebar{background:var(--bar);display:flex;align-items:center;gap:16px;padding:0 12px;
+    border-bottom:1px solid var(--line)}
+  .titlebar .brand{font-weight:600;color:#fff;display:flex;align-items:center;gap:8px}
+  .titlebar .brand i{width:16px;height:16px;background:var(--accent);border-radius:4px;display:inline-block}
+  .menu{display:flex;gap:14px;color:var(--muted)}
+  .menu span{cursor:default}
+  .menu span:hover{color:#fff}
+  /* toolbar */
+  .toolbar{background:var(--bar2);display:flex;align-items:center;gap:4px;padding:0 8px;
+    border-bottom:1px solid var(--line)}
+  .tbtn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:5px;color:var(--ink);
+    cursor:pointer;border:1px solid transparent;font-size:12px;background:transparent}
+  .tbtn:hover{background:#333a44;border-color:var(--line)}
+  .tbtn.on{background:var(--sel);border-color:#4a6e92;color:#fff}
+  .tbtn.solve{background:var(--accentd);border-color:#15876a;color:#fff;font-weight:600;margin-left:6px}
+  .tbtn.solve:hover{background:var(--accent)}
+  .sep{width:1px;height:22px;background:var(--line);margin:0 6px}
+  .tbtn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
+  /* main */
+  .main{display:grid;grid-template-columns:230px 1fr;min-height:0}
+  .tree{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:6px 0}
+  .tree .grp{padding:5px 10px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .node{display:flex;align-items:center;gap:7px;padding:4px 10px 4px 14px;cursor:default;color:var(--ink);font-size:12.5px}
+  .node .tw{width:12px;color:var(--muted);font-size:10px}
+  .node.ind{padding-left:30px}
+  .node.ind2{padding-left:46px}
+  .node.res{cursor:pointer}
+  .node.res:hover{background:#2f3640}
+  .node.sel{background:var(--sel);color:#fff}
+  .node .ic{width:13px;height:13px;color:var(--accent)}
+  .node small{color:var(--muted);margin-left:auto;font-size:11px}
+  /* viewport */
+  .viewport{position:relative;background:radial-gradient(120% 120% at 50% 18%,#3a4658 0%,#222831 70%,#1a1f26 100%);
+    overflow:hidden}
+  #gl{width:100%;height:100%;display:block}
+  .vp-title{position:absolute;top:10px;left:14px;color:#eef2f6;font-size:13px;line-height:1.5;
+    text-shadow:0 1px 2px #000}
+  .vp-title b{font-weight:600}
+  .vp-title span{color:#b9c4d0;font-size:11.5px}
+  /* legend */
+  .legend{position:absolute;top:64px;left:14px;width:128px;color:#eef2f6;text-shadow:0 1px 2px #000;font-size:11px}
+  .legend .lt{font-size:11.5px;margin-bottom:6px;font-weight:600}
+  .legend .barwrap{display:flex;gap:6px}
+  .bar{width:16px;height:210px;border:1px solid #00000055;border-radius:2px;
+    background:linear-gradient(to top,#000084,#1414ff,#00b4ff,#28d76b,#d7e000,#ff7a00,#d60000,#7a0000)}
+  .ticks{display:flex;flex-direction:column;justify-content:space-between;height:210px;font-size:10.5px;color:#dfe6ee}
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    background:#11151bcc;color:#eef2f6;z-index:5;flex-direction:column;gap:14px}
+  .overlay.hidden{display:none}
+  .spinner{width:34px;height:34px;border:3px solid #3a414b;border-top-color:var(--accent);
+    border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .ov-steps{font-size:12px;color:var(--muted)}
+  .triad{position:absolute;bottom:12px;left:14px;color:#cfd8e2;font-size:11px}
+  .vp-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:#eef2f6;
+    background:#1b212bdd;border:1px solid #3a414b;border-radius:6px;
+    padding:7px 14px;font-size:12px}
+  .vp-hint.hidden{display:none}
+  /* statusbar */
+  .status{background:var(--bar);border-top:1px solid var(--line);display:flex;align-items:center;
+    gap:18px;padding:0 12px;color:var(--muted);font-size:11.5px}
+  .status .gate{margin-left:auto;color:#e0a23a;font-weight:600}
+  .status b{color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="titlebar">
+    <div class="brand"><i></i> COPV Studio</div>
+    <div class="menu"><span>File</span><span>Edit</span><span>View</span><span>Units</span><span>Solve</span><span>Help</span></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="tbtn" id="fit"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>Fit</div>
+    <div class="tbtn on" id="rot"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2-5.3M4 4v3h3"/></svg>Rotate</div>
+    <div class="sep"></div>
+    <div class="tbtn" id="meshBtn"><svg viewBox="0 0 24 24"><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>Mesh</div>
+    <div class="tbtn on" id="contourBtn"><svg viewBox="0 0 24 24"><path d="M4 18c4-8 12-8 16 0M4 13c4-8 12-8 16 0"/></svg>Contour</div>
+    <div class="sep"></div>
+    <span style="color:var(--muted);font-size:11px">Result:</span>
+    <div class="tbtn" id="result-label" style="color:var(--ink)">Failure index</div>
+    <div class="tbtn solve" id="solve"><svg viewBox="0 0 24 24"><path d="M5 3l14 9-14 9z"/></svg>Solve</div>
+  </div>
+
+  <div class="main">
+    <div class="tree" id="tree">
+      <div class="grp">Outline</div>
+      <div class="node"><span class="tw">▾</span><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/></svg> Model (COPV)</div>
+      <div class="node ind"><span class="tw">▾</span> Geometry</div>
+      <div class="node ind2">Ellipsoidal dome shell</div>
+      <div class="node ind"><span class="tw">▸</span> Mesh <small>2214 tri</small></div>
+      <div class="node ind"><span class="tw">▾</span> Materials</div>
+      <div class="node ind2">T700 / E862 UD</div>
+      <div class="node ind"><span class="tw">▾</span> Loads</div>
+      <div class="node ind2">Internal pressure <small>6.85 MPa</small></div>
+      <div class="node ind2">Boss supports <small>fixed</small></div>
+      <div class="grp">Solution · Results</div>
+      <div class="node res ind sel" data-f="fi"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 18c4-8 12-8 16 0"/></svg> Failure index</div>
+      <div class="node res ind" data-f="disp"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 12h16M12 4v16"/></svg> Total deformation</div>
+      <div class="node res ind" data-f="angle"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20L20 4M4 20h9"/></svg> Winding angle</div>
+    </div>
+
+    <div class="viewport">
+      <canvas id="gl"></canvas>
+      <div class="vp-title" id="vptitle"><b>Failure index (Hashin)</b><br><span id="vpsub">Type: max envelope &nbsp;·&nbsp; Max 0.49 &nbsp;·&nbsp; Min 0.00</span></div>
+      <div class="legend">
+        <div class="lt" id="legtitle">Failure index</div>
+        <div class="barwrap"><div class="bar"></div>
+          <div class="ticks" id="ticks"></div></div>
+      </div>
+      <div class="triad" id="triad">▸ X &nbsp; ▴ Y &nbsp; ● Z</div>
+      <div class="overlay hidden" id="overlay">
+        <div class="spinner"></div>
+        <div class="ov-steps" id="ovsteps">Assembling stiffness…</div>
+      </div>
+      <div class="vp-hint" id="vphint">Press <b>Solve</b> to run the analysis</div>
+    </div>
+  </div>
+
+  <div class="status">
+    <span>Solver: <b>CG (shell, curvature-coupled)</b></span>
+    <span>Nodes: <b>1187</b></span>
+    <span>Elements: <b>2214</b></span>
+    <span>Burst factor: <b>1.43×</b></span>
+    <span class="gate">Release gate: do_not_release</span>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const FIELDS = {
+  fi:    { title:'Failure index (Hashin)', legend:'Failure index', unit:'', min:0, max:0.49,
+           sub:'Type: max envelope', fn:(r,y)=> Math.min(0.49, 0.12 + 0.37*Math.exp(-Math.pow((Math.abs(y)-1.06)/0.14,2))) },
+  disp:  { title:'Total deformation', legend:'Deformation (mm)', unit:'mm', min:0, max:1.16,
+           sub:'Type: displacement magnitude', fn:(r,y)=> 1.16*Math.exp(-Math.pow(y/0.95,2)) },
+  angle: { title:'Winding angle', legend:'Angle (deg)', unit:'°', min:12, max:58,
+           sub:'Type: fibre orientation', fn:(r,y)=> 12 + 46*Math.min(1, Math.pow(Math.abs(y)/1.8,1.4)) },
+};
+let current = 'fi', solved = false;
+
+// jet colormap, t in 0..1
+function jet(t){
+  t = Math.max(0, Math.min(1, t));
+  const r = Math.max(0, Math.min(1, 1.5 - Math.abs(4*t - 3)));
+  const g = Math.max(0, Math.min(1, 1.5 - Math.abs(4*t - 2)));
+  const b = Math.max(0, Math.min(1, 1.5 - Math.abs(4*t - 1)));
+  return [r, g, b];
+}
+
+// ---- COPV meridian profile -> lathe geometry ----
+function copvPoints(){
+  const R=1.0, halfCyl=1.1, domeH=0.7, open=0.12;
+  const pts=[];
+  const t0=Math.asin(open/R);
+  // bottom dome: pole(open) -> equator
+  for(let i=0;i<=26;i++){ const t=t0+(Math.PI/2-t0)*i/26;
+    pts.push(new THREE.Vector2(R*Math.sin(t), -halfCyl - domeH*Math.cos(t))); }
+  // cylinder
+  for(let i=1;i<26;i++){ pts.push(new THREE.Vector2(R, -halfCyl + 2*halfCyl*i/26)); }
+  // top dome: equator -> pole(open)
+  for(let i=0;i<=26;i++){ const t=Math.PI/2 - (Math.PI/2-t0)*i/26;
+    pts.push(new THREE.Vector2(R*Math.sin(t), halfCyl + domeH*Math.cos(t))); }
+  return pts;
+}
+
+const scene = new THREE.Scene();
+const vpEl = document.querySelector('.viewport');
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+camera.position.set(3.4, 1.6, 3.4);
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.78));
+const dir = new THREE.DirectionalLight(0xffffff, 0.55); dir.position.set(4,6,5); scene.add(dir);
+const dir2 = new THREE.DirectionalLight(0xffffff, 0.25); dir2.position.set(-5,-2,-3); scene.add(dir2);
+
+const geo = new THREE.LatheGeometry(copvPoints(), 120);
+geo.computeVertexNormals();
+const colors = new Float32Array(geo.attributes.position.count*3);
+geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+const mat = new THREE.MeshLambertMaterial({ vertexColors:true, side:THREE.DoubleSide });
+const mesh = new THREE.Mesh(geo, mat);
+scene.add(mesh);
+
+const wire = new THREE.LineSegments(
+  new THREE.WireframeGeometry(new THREE.LatheGeometry(copvPoints(), 48)),
+  new THREE.LineBasicMaterial({ color:0x0a0f14, transparent:true, opacity:0.18 }));
+wire.visible = false; scene.add(wire);
+
+const axes = new THREE.AxesHelper(0.6); axes.position.set(-1.35,-1.95,0); scene.add(axes);
+
+function paint(field){
+  const pos = geo.attributes.position, col = geo.attributes.color;
+  const f = FIELDS[field];
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i), y=pos.getY(i), z=pos.getZ(i);
+    let r,g,b;
+    if(!solved){ r=g=b=0.55; }
+    else { const r0=Math.sqrt(x*x+z*z); const v=f.fn(r0,y);
+      const t=(v - f.min)/(f.max - f.min); [r,g,b]=jet(t); }
+    col.setXYZ(i, r,g,b);
+  }
+  col.needsUpdate = true;
+}
+
+function updateLegend(field){
+  const f = FIELDS[field];
+  document.getElementById('legtitle').textContent = f.legend;
+  document.getElementById('vptitle').querySelector('b').textContent = f.title;
+  document.getElementById('vpsub').innerHTML =
+    `${f.sub} &nbsp;·&nbsp; Max ${f.max.toFixed(2)}${f.unit} &nbsp;·&nbsp; Min ${f.min.toFixed(2)}${f.unit}`;
+  const ticks = document.getElementById('ticks'); ticks.innerHTML='';
+  for(let i=6;i>=0;i--){ const val = f.min + (f.max-f.min)*i/6;
+    const d=document.createElement('div'); d.textContent = val.toFixed(2)+f.unit; ticks.appendChild(d); }
+}
+
+function setField(field){
+  current = field;
+  document.querySelectorAll('.node.res').forEach(n=>n.classList.toggle('sel', n.dataset.f===field));
+  document.getElementById('result-label').textContent = FIELDS[field].legend.replace(/\s*\(.*\)/,'');
+  updateLegend(field); paint(field);
+}
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.target.set(0,0,0);
+controls.autoRotate = true; controls.autoRotateSpeed = 0.8;
+
+function resize(){
+  const w=vpEl.clientWidth, h=vpEl.clientHeight;
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+(function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene,camera); })();
+
+// ---- interactions ----
+document.querySelectorAll('.node.res').forEach(n=>
+  n.addEventListener('click', ()=>{ if(solved) setField(n.dataset.f); }));
+document.getElementById('meshBtn').addEventListener('click', e=>{
+  wire.visible=!wire.visible; e.currentTarget.classList.toggle('on', wire.visible); });
+document.getElementById('contourBtn').addEventListener('click', e=>{
+  mesh.visible=!mesh.visible; e.currentTarget.classList.toggle('on', mesh.visible); });
+document.getElementById('rot').addEventListener('click', e=>{
+  controls.autoRotate=!controls.autoRotate; e.currentTarget.classList.toggle('on', controls.autoRotate); });
+document.getElementById('fit').addEventListener('click', ()=>{
+  camera.position.set(3.4,1.6,3.4); controls.target.set(0,0,0); });
+
+const ov=document.getElementById('overlay'), ovs=document.getElementById('ovsteps');
+const steps=['Assembling stiffness…','Solving CG system…','Evaluating Hashin failure…','Computing burst factor…'];
+document.getElementById('solve').addEventListener('click', ()=>{
+  document.getElementById('vphint').classList.add('hidden');
+  solved=false; ov.classList.remove('hidden'); let i=0; ovs.textContent=steps[0];
+  const t=setInterval(()=>{ i++; if(i<steps.length){ ovs.textContent=steps[i]; }
+    else{ clearInterval(t); ov.classList.add('hidden'); solved=true; setField(current); } }, 560);
+});
+
+// initial: unsolved gray + legend
+updateLegend('fi'); paint('fi');
+</script>
+</body>
+</html>

@@ -17,13 +17,19 @@ pip install -e .[app]
 This pulls in `trame`, `trame-vuetify`, and `trame-vtk` on top of the engine
 dependencies. Use the Python environment that already has JAX working.
 
-## Non-technical demo (no install)
+## Demos (no install — open in a browser)
 
-For showing the tool to a non-technical audience, open `app/demo/index.html` in any
-browser — double-click it, no Python or install needed. It is a plain-language,
-interactive walkthrough (is it safe, how fast, what it costs in material, the honest
-production gate) using numbers scaled from a validated reference run. It complements,
-not replaces, the live engine GUI below.
+Two standalone HTML demos for showing the tool without running Python:
+
+- `app/demo/studio.html` — a **CAE-style simulation viewer** (Ansys/Abaqus look): a
+  rotatable 3D vessel coloured by a Hashin failure-index contour, model tree, toolbar,
+  contour legend, Solve button, and result fields (failure index / deformation /
+  winding angle). Needs an internet connection (loads Three.js from a CDN).
+- `app/demo/index.html` — a **plain-language walkthrough** for a non-technical
+  audience (is it safe, how fast, how much carbon, the honest production gate).
+
+Both use numbers from / scaled from a validated reference run, and are labelled as
+screening estimates. They complement, not replace, the live engine GUI below.
 
 ## Run the GUI (live engine)
 
