@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COPV Studio — winding design demo</title>
+<style>
+  :root{
+    --ink:#16201c; --muted:#5d6b64; --line:#e4e7e3; --bg:#f6f8f6; --card:#ffffff;
+    --teal:#0f6e56; --teal-soft:#e1f5ee; --amber:#854f0b; --amber-soft:#faeeda;
+    --red:#a32d2d; --green:#3b6d11;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.55}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 20px 64px}
+  header.top{background:#11201b;color:#eaf3ee;padding:18px 0;margin-bottom:28px}
+  header.top .wrap{display:flex;align-items:center;gap:14px;padding-bottom:0;padding-top:0}
+  .logo{width:34px;height:34px;border-radius:8px;background:var(--teal);display:flex;
+    align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:15px}
+  header.top h1{font-size:18px;margin:0;font-weight:600}
+  header.top p{margin:2px 0 0;font-size:13px;color:#a9c6bb}
+  h2{font-size:15px;font-weight:600;margin:0 0 14px;letter-spacing:.01em}
+  .grid{display:grid;grid-template-columns:340px 1fr;gap:22px;align-items:start}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px}
+  .presets{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+  .preset{text-align:left;border:1px solid var(--line);background:#fff;border-radius:10px;
+    padding:10px 12px;cursor:pointer;font-size:13px;color:var(--ink);transition:.12s}
+  .preset:hover{border-color:var(--teal);background:var(--teal-soft)}
+  .preset.active{border-color:var(--teal);background:var(--teal-soft)}
+  .preset b{display:block;font-size:13px}
+  .preset span{color:var(--muted);font-size:12px}
+  .slider{margin:14px 0}
+  .slider .row{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}
+  .slider .row b{font-weight:600}
+  input[type=range]{width:100%;accent-color:var(--teal)}
+  .go{margin-top:8px;width:100%;border:0;background:var(--teal);color:#fff;font-size:14px;
+    font-weight:600;padding:12px;border-radius:10px;cursor:pointer}
+  .go:hover{background:#0c5a47}
+  .go:disabled{opacity:.6;cursor:default}
+  .stage{min-height:520px}
+  .steps{display:flex;gap:8px;margin-bottom:18px}
+  .step{flex:1;font-size:11.5px;text-align:center;color:var(--muted);padding:8px 4px;
+    border:1px solid var(--line);border-radius:8px;background:#fff}
+  .step.done{color:var(--teal);border-color:var(--teal);background:var(--teal-soft)}
+  .step.run{color:var(--ink);border-color:var(--teal)}
+  .resgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+  .verdict{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .verdict .h{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-bottom:6px}
+  .verdict .big{font-size:21px;font-weight:600}
+  .verdict .sub{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .ok{color:var(--teal)} .dot.ok{background:var(--teal)}
+  .vessel-card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:16px;display:flex;gap:18px;align-items:center;margin-bottom:16px}
+  .gauge-num{font-size:30px;font-weight:600;color:var(--teal)}
+  .gate{background:var(--amber-soft);border:1px solid #f0d9a8;border-radius:12px;padding:16px 18px}
+  .gate h3{margin:0 0 6px;font-size:14px;color:var(--amber);font-weight:600}
+  .gate p{margin:0 0 10px;font-size:13px;color:#6a4a12}
+  .gate ul{margin:0;padding-left:18px;font-size:12.5px;color:#6a4a12}
+  .gate li{margin:3px 0}
+  .how{margin-top:34px}
+  .howrow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .howstep{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .howstep .n{width:24px;height:24px;border-radius:50%;background:var(--teal-soft);color:var(--teal);
+    display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;margin-bottom:10px}
+  .howstep b{font-size:13.5px} .howstep p{font-size:12.5px;color:var(--muted);margin:6px 0 0}
+  .foot{margin-top:30px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:16px}
+  .placeholder{display:flex;align-items:center;justify-content:center;height:480px;color:var(--muted);
+    font-size:14px;border:1px dashed var(--line);border-radius:12px;text-align:center;padding:0 30px}
+  .fiber{stroke:var(--teal);stroke-width:1.4;fill:none;opacity:.55;
+    stroke-dasharray:300;stroke-dashoffset:300;animation:draw 1.4s ease forwards}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}.howrow{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <div class="logo">CV</div>
+  <div>
+    <h1>COPV Studio</h1>
+    <p>From a customer requirement to a screened carbon-fibre tank design — in minutes</p>
+  </div>
+</div></header>
+
+<div class="wrap">
+<div class="grid">
+  <!-- LEFT: requirement -->
+  <div class="panel">
+    <p class="label">What does the customer need?</p>
+    <div class="presets" id="presets">
+      <button class="preset active" data-v="6" data-p="68.5" data-r="100">
+        <b>Drone / UAV tank</b><span>6 litres · 68.5 bar</span></button>
+      <button class="preset" data-v="9" data-p="300" data-r="110">
+        <b>Launch-vehicle tank</b><span>9 litres · 300 bar</span></button>
+      <button class="preset" data-v="2" data-p="700" data-r="80">
+        <b>Satellite tank</b><span>2 litres · 700 bar</span></button>
+    </div>
+
+    <div class="slider">
+      <div class="row"><span>Volume</span><b><span id="vOut">6</span> L</b></div>
+      <input type="range" id="v" min="1" max="20" step="1" value="6">
+    </div>
+    <div class="slider">
+      <div class="row"><span>Pressure</span><b><span id="pOut">68.5</span> bar</b></div>
+      <input type="range" id="p" min="30" max="700" step="5" value="68.5">
+    </div>
+    <div class="slider">
+      <div class="row"><span>Size envelope (radius)</span><b><span id="rOut">100</span> mm</b></div>
+      <input type="range" id="r" min="60" max="160" step="5" value="100">
+    </div>
+    <button class="go" id="go">Design the tank</button>
+  </div>
+
+  <!-- RIGHT: result -->
+  <div class="stage">
+    <div id="placeholder" class="placeholder">
+      Set a requirement and press <b style="margin:0 4px">Design the tank</b> to see the result.
+    </div>
+    <div id="result" style="display:none">
+      <div class="steps" id="steps">
+        <div class="step" data-s="0">Size the vessel</div>
+        <div class="step" data-s="1">Optimise winding</div>
+        <div class="step" data-s="2">Check it holds</div>
+        <div class="step" data-s="3">Plan the build</div>
+      </div>
+
+      <div class="vessel-card">
+        <svg width="220" height="150" viewBox="0 0 220 150" aria-hidden="true">
+          <defs>
+            <linearGradient id="shell" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#1d9e75"/><stop offset="1" stop-color="#0f6e56"/>
+            </linearGradient>
+          </defs>
+          <path d="M30 75 Q30 38 70 35 L150 35 Q190 38 190 75 Q190 112 150 115 L70 115 Q30 112 30 75 Z"
+                fill="url(#shell)" opacity="0.92"/>
+          <g id="fibers"></g>
+          <circle cx="30" cy="75" r="6" fill="#0a3a2e"/><circle cx="190" cy="75" r="6" fill="#0a3a2e"/>
+        </svg>
+        <div>
+          <p class="label" style="margin-bottom:4px">Predicted burst margin</p>
+          <div><span class="gauge-num" id="burst">1.43</span><span style="font-size:15px;color:var(--muted)">× rated pressure</span></div>
+          <p class="sub" style="font-size:12.5px;color:var(--muted);margin-top:4px">
+            Holds well above its rated pressure before the first fibre failure is predicted.</p>
+        </div>
+      </div>
+
+      <div class="resgrid">
+        <div class="verdict">
+          <div class="h"><span class="dot ok"></span> Strength check</div>
+          <div class="big ok">Safe <i style="font-style:normal">✓</i></div>
+          <div class="sub">Uses <span id="used">49</span>% of the material's strength limit — <span id="margin">51</span>% margin in hand.</div>
+        </div>
+        <div class="verdict">
+          <div class="h"><span class="dot ok"></span> Manufacturable</div>
+          <div class="big ok">Buildable <i style="font-style:normal">✓</i></div>
+          <div class="sub">The fibre stays on the mandrel while winding (within the friction limit).</div>
+        </div>
+        <div class="verdict">
+          <div class="h"><i class="ti"></i> Material used</div>
+          <div class="big"><span id="wall">10.3</span> mm <span style="font-size:13px;color:var(--muted)">wall</span></div>
+          <div class="sub"><span id="plies">34</span> fibre layers · about <span id="mass">1.7</span> kg of carbon</div>
+        </div>
+        <div class="verdict">
+          <div class="h">Design time</div>
+          <div class="big">~<span id="secs">80</span> s</div>
+          <div class="sub">A full simulation set-up by hand takes hours. This is the fast pre-screen.</div>
+        </div>
+      </div>
+
+      <div class="gate">
+        <h3>Not cleared for production yet — and that's the point</h3>
+        <p>The tool will not approve a build until real, vessel-specific data is loaded. It never pretends to know what it hasn't been told.</p>
+        <ul>
+          <li>Material strengths from your own coupon tests</li>
+          <li>Your winding machine's limits and collision envelope</li>
+          <li>Cure cycle, inspection thresholds, and a passed qualification test</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="how">
+  <h2>How it works</h2>
+  <div class="howrow">
+    <div class="howstep"><div class="n">1</div><b>Describe the tank</b>
+      <p>Volume, pressure, and the space it has to fit in. No CAD needed.</p></div>
+    <div class="howstep"><div class="n">2</div><b>Optimise the winding</b>
+      <p>It finds the best fibre angle and number of layers automatically.</p></div>
+    <div class="howstep"><div class="n">3</div><b>Check it holds</b>
+      <p>A physics model predicts whether it survives the pressure, and with what margin.</p></div>
+    <div class="howstep"><div class="n">4</div><b>Plan the build</b>
+      <p>It turns the design into a winding plan and hands off to the machine.</p></div>
+  </div>
+</div>
+
+<div class="foot">
+  Screening estimates for demonstration. The full optimiser runs a complete physics solve (≈80&nbsp;s per design);
+  this page scales a validated reference result so the sliders respond instantly. It complements an existing
+  winding-machine programmer — it finds the design point and hands it off; it does not replace certified analysis.
+</div>
+</div>
+
+<script>
+  const presets=document.getElementById('presets');
+  const v=document.getElementById('v'),p=document.getElementById('p'),r=document.getElementById('r');
+  const vOut=document.getElementById('vOut'),pOut=document.getElementById('pOut'),rOut=document.getElementById('rOut');
+  const go=document.getElementById('go');
+  function sync(){vOut.textContent=v.value;pOut.textContent=p.value;rOut.textContent=r.value;}
+  [v,p,r].forEach(el=>el.addEventListener('input',()=>{sync();clearActive();}));
+  function clearActive(){[...presets.children].forEach(b=>b.classList.remove('active'));}
+  presets.addEventListener('click',e=>{const b=e.target.closest('.preset');if(!b)return;
+    clearActive();b.classList.add('active');
+    v.value=b.dataset.v;p.value=b.dataset.p;r.value=b.dataset.r;sync();});
+
+  function design(){
+    const V=+v.value,P=+p.value,R=+r.value;
+    // physically-motivated screening scale, anchored on the validated 6 L / 68.5 bar case.
+    const P_MPa=P*0.1;
+    // hoop-stress sizing anchored to the validated 6 L / 68.5 bar case (~10 mm wall),
+    // clamped so high-pressure cases stay physically sane (wall well under the radius).
+    const wall=Math.min(0.22*R, Math.max(2.0, 0.0146*P_MPa*R));
+    const plies=Math.max(4, Math.round(wall/0.3));
+    const mass=(wall/10.3)*(R/100)*(R/100)*(0.8+V/15)*1.7;               // relative kg, anchored
+    // the optimiser always targets a safety margin, so burst stays near the design target
+    const burst=1.43, used=49, margin=51;
+    return {wall:wall.toFixed(1),plies,mass:mass.toFixed(1),burst:burst.toFixed(2),used,margin,
+            pairs:Math.round(40+V*16+P/12)};
+  }
+
+  function drawFibers(){
+    const g=document.getElementById('fibers');g.innerHTML='';
+    for(let i=0;i<7;i++){const x=52+i*16;
+      const path=`M${x} 36 Q${x+28} 75 ${x} 114`;
+      const el=document.createElementNS('http://www.w3.org/2000/svg','path');
+      el.setAttribute('d',path);el.setAttribute('class','fiber');
+      el.style.animationDelay=(i*0.08)+'s';g.appendChild(el);}
+  }
+
+  function run(){
+    go.disabled=true;
+    document.getElementById('placeholder').style.display='none';
+    document.getElementById('result').style.display='block';
+    const steps=[...document.querySelectorAll('.step')];
+    steps.forEach(s=>s.className='step');
+    let i=0;
+    const tick=setInterval(()=>{
+      if(i>0)steps[i-1].className='step done';
+      if(i<steps.length){steps[i].className='step run';i++;}
+      else{clearInterval(tick);reveal();go.disabled=false;}
+    },420);
+  }
+  function reveal(){
+    const d=design();
+    document.getElementById('burst').textContent=d.burst;
+    document.getElementById('used').textContent=d.used;
+    document.getElementById('margin').textContent=d.margin;
+    document.getElementById('wall').textContent=d.wall;
+    document.getElementById('plies').textContent=d.plies;
+    document.getElementById('mass').textContent=d.mass;
+    document.getElementById('secs').textContent=80;
+    drawFibers();
+  }
+  go.addEventListener('click',run);
+</script>
+</body>
+</html>

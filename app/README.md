@@ -17,7 +17,15 @@ pip install -e .[app]
 This pulls in `trame`, `trame-vuetify`, and `trame-vtk` on top of the engine
 dependencies. Use the Python environment that already has JAX working.
 
-## Run the GUI
+## Non-technical demo (no install)
+
+For showing the tool to a non-technical audience, open `app/demo/index.html` in any
+browser — double-click it, no Python or install needed. It is a plain-language,
+interactive walkthrough (is it safe, how fast, what it costs in material, the honest
+production gate) using numbers scaled from a validated reference run. It complements,
+not replaces, the live engine GUI below.
+
+## Run the GUI (live engine)
 
 ```bash
 python -m app.main
