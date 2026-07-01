@@ -17,6 +17,22 @@ pip install -e .[app]
 This pulls in `trame`, `trame-vuetify`, and `trame-vtk` on top of the engine
 dependencies. Use the Python environment that already has JAX working.
 
+## Workflow application (recommended GUI)
+
+`python -m app.server` then open **http://localhost:8081** — an Ansys-Workbench-style
+workflow app: a Three.js browser front-end (reliable WebGL rendering) driven by the
+real Python engine over a small JSON API. Step through:
+
+```
+Geometry (define by Capacity or Dimensions) -> Materials -> Mesh ->
+Analysis settings -> Solution (real FEA + winding optimizer + element CLT) -> Results
+```
+
+The 3D viewport shows the shell, then the mesh, then the failure-index contour with a
+switchable field list (including the element-level CLT fields) and reserve-factor
+margins. This replaces the trame `studio_app` GUI, which had fragile server-side VTK
+rendering on some setups.
+
 ## End-to-end pipeline (one command)
 
 `python -m app.pipeline` runs the whole toolchain and prints a staged engineering log,

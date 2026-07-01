@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COPV Studio Pro</title>
+<style>
+ :root{--bar:#23272e;--panel:#262b33;--line:#3a414b;--ink:#dfe4ea;--muted:#9aa4b1;--accent:#1d9e75;--sel:#34506b}
+ *{box-sizing:border-box}
+ html,body{margin:0;height:100%;font-family:"Segoe UI",system-ui,sans-serif;color:var(--ink);background:#1b1f25;font-size:13px;overflow:hidden}
+ #app{display:grid;grid-template-rows:44px 1fr 26px;height:100vh}
+ .bar{background:var(--bar);display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line)}
+ .bar b{color:#fff;font-weight:600}.bar .tag{color:var(--muted);font-size:12px}
+ .bar .sp{flex:1}
+ .main{display:grid;grid-template-columns:330px 1fr;min-height:0}
+ .side{background:var(--panel);border-right:1px solid var(--line);overflow:auto;display:flex;flex-direction:column}
+ .grp{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:10px 12px 4px}
+ .step{cursor:pointer;border-radius:6px;margin:1px 6px;padding:7px 10px;display:flex;align-items:center;gap:9px;font-size:13px}
+ .step:hover{background:#2f3640}.step.on{background:var(--sel);color:#fff}
+ .step .ic{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--muted);display:inline-block}
+ .step.done .ic{background:var(--accent);border-color:var(--accent)}
+ .details{border-top:1px solid var(--line);padding:12px;flex:1}
+ .details h4{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 10px}
+ label{display:block;font-size:11px;color:var(--muted);margin:8px 0 3px}
+ input,select{width:100%;background:#20252c;color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:7px 8px;font-size:13px}
+ button.go{margin-top:12px;width:100%;border:0;background:var(--accent);color:#fff;font-weight:600;padding:10px;border-radius:6px;cursor:pointer;font-size:13px}
+ button.go:hover{background:#17845f}button.go:disabled{opacity:.55;cursor:default}
+ .hint{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+ .metric{display:flex;justify-content:space-between;padding:3px 0;font-size:12.5px}
+ .metric b{color:#eef2f6}
+ .view{position:relative;background:radial-gradient(120% 120% at 50% 15%,#3a4658 0%,#222831 70%,#1a1f26 100%)}
+ #gl{width:100%;height:100%;display:block}
+ .legend{position:absolute;top:52px;left:14px;display:flex;gap:6px;align-items:flex-end;text-shadow:0 1px 2px #000}
+ .lbar{width:15px;height:180px;border:1px solid #0006;border-radius:2px;background:linear-gradient(to top,#000084,#1414ff,#00b4ff,#28d76b,#d7e000,#ff7a00,#d60000)}
+ .lt{display:flex;flex-direction:column;justify-content:space-between;height:180px;font-size:10px;color:#dfe6ee}
+ .vtitle{position:absolute;top:12px;left:14px;font-size:13px;color:#eef2f6;text-shadow:0 1px 2px #000}
+ .spin{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#11151bcc;flex-direction:column;gap:12px;z-index:5}
+ .spin.hide{display:none}
+ .sp-c{width:34px;height:34px;border:3px solid #3a414b;border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
+ @keyframes sp{to{transform:rotate(360deg)}}
+ .status{background:var(--bar);border-top:1px solid var(--line);display:flex;align-items:center;gap:16px;padding:0 14px;font-size:11.5px;color:var(--muted)}
+ .status b{color:var(--ink)}.status .gate{margin-left:auto;color:#e0a23a;font-weight:600}
+ .none{display:none}
+</style></head><body>
+<div id="app">
+ <div class="bar"><span style="color:var(--accent);font-size:16px">◆</span><b>COPV Studio Pro</b><span class="tag">workflow · real FEA</span><span class="sp"></span><span class="tag" id="gatechip"></span></div>
+ <div class="main">
+  <div class="side">
+   <div class="grp">Outline</div>
+   <div id="steps"></div>
+   <div class="details" id="details"></div>
+  </div>
+  <div class="view">
+   <canvas id="gl"></canvas>
+   <div class="vtitle" id="vtitle"></div>
+   <div class="legend none" id="legend"><div class="lbar"></div><div class="lt" id="lt"></div></div>
+   <div class="spin hide" id="spin"><div class="sp-c"></div><div id="spinmsg" style="color:#c9d2db">Working…</div></div>
+  </div>
+ </div>
+ <div class="status"><span>Model: <b id="model">not generated</b></span><span id="statusmsg">Ready. Start at Geometry.</span><span class="gate" id="gate"></span></div>
+</div>
+
+<script type="importmap">{ "imports": {
+ "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" }}</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---------- state ----------
+const S = {
+  step:'geometry', geom:null, result:null,
+  inputs:{ define_by:'Capacity', capacity:9, radius:100, length:220, thickness:8, opening:10, dome_ratio:0.7,
+           tank_type:'Type 3 (Al liner)', xt:2200, xc:1400, yt:70, yc:220, s:120,
+           density:'Medium', pressure:6.85, mode:'Constant-angle screen', angle:42, band:8 },
+  done:{geometry:false,materials:false,mesh:false,setup:false,solution:false,results:false}
+};
+const STEPS=[['geometry','Geometry'],['materials','Materials'],['mesh','Mesh'],['setup','Analysis settings'],['solution','Solution'],['results','Results']];
+
+// ---------- three.js ----------
+const view=document.querySelector('.view');
+const scene=new THREE.Scene();
+scene.add(new THREE.AmbientLight(0xffffff,0.85));
+const dl=new THREE.DirectionalLight(0xffffff,0.5); dl.position.set(1,1,1); scene.add(dl);
+const camera=new THREE.PerspectiveCamera(40,1,0.1,100000);
+const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('gl'),antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.autoRotate=true; controls.autoRotateSpeed=0.6;
+let meshObj=null, wireObj=null;
+function resize(){const w=view.clientWidth,h=view.clientHeight; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();}
+addEventListener('resize',resize); resize();
+(function loop(){requestAnimationFrame(loop); controls.update(); renderer.render(scene,camera);})();
+function jet(t){t=Math.max(0,Math.min(1,t));return[Math.max(0,Math.min(1,1.5-Math.abs(4*t-3))),Math.max(0,Math.min(1,1.5-Math.abs(4*t-2))),Math.max(0,Math.min(1,1.5-Math.abs(4*t-1)))];}
+
+function clearMesh(){ for(const o of [meshObj,wireObj]){ if(o){scene.remove(o); o.geometry.dispose();} } meshObj=wireObj=null; }
+function buildGeometry(nodes,elems){
+  const n=elems.length, pos=new Float32Array(n*9);
+  for(let e=0;e<n;e++){const[i,j,k]=elems[e]; pos.set([...nodes[i],...nodes[j],...nodes[k]],e*9);}
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*9),3)); g.computeVertexNormals();
+  return g;
+}
+function fitCamera(g){
+  g.computeBoundingSphere(); const s=g.boundingSphere; const c=s.center, R=s.radius;
+  controls.target.copy(c); camera.position.set(c.x+R*1.8, c.y+R*1.0, c.z+R*1.8); camera.near=R*0.01; camera.far=R*40; camera.updateProjectionMatrix();
+}
+function showMesh(nodes,elems,{grey=false, wire=false, field=null}={}){
+  clearMesh();
+  const g=buildGeometry(nodes,elems);
+  const col=g.attributes.color.array; const n=elems.length;
+  let lo=0,hi=1;
+  if(field){ lo=Infinity;hi=-Infinity; for(const v of field){if(v<lo)lo=v;if(v>hi)hi=v;} if(hi-lo<1e-9)hi=lo+1; }
+  for(let e=0;e<n;e++){ let r,gr,b;
+    if(grey){r=gr=b=0.58;} else {const[cr,cg,cb]=jet((field[e]-lo)/(hi-lo)); r=cr;gr=cg;b=cb;}
+    for(let v=0;v<3;v++){const o=(e*3+v)*3; col[o]=r;col[o+1]=gr;col[o+2]=b;} }
+  g.attributes.color.needsUpdate=true;
+  meshObj=new THREE.Mesh(g,new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide,flatShading:true}));
+  scene.add(meshObj);
+  if(wire){ const w=new THREE.WireframeGeometry(g); wireObj=new THREE.LineSegments(w,new THREE.LineBasicMaterial({color:0x0a0f14,transparent:true,opacity:0.25})); scene.add(wireObj); }
+  fitCamera(g);
+  // legend
+  const L=document.getElementById('legend'), lt=document.getElementById('lt');
+  if(field){ L.classList.remove('none'); lt.innerHTML=''; for(let i=6;i>=0;i--){const d=document.createElement('div'); d.textContent=(lo+(hi-lo)*i/6).toPrecision(3); lt.appendChild(d);} }
+  else L.classList.add('none');
+}
+
+// ---------- UI ----------
+function renderSteps(){
+  const c=document.getElementById('steps'); c.innerHTML='';
+  for(const [k,label] of STEPS){ const d=document.createElement('div');
+    d.className='step'+(S.step===k?' on':'')+(S.done[k]?' done':'');
+    d.innerHTML=`<span class="ic"></span>${label}`; d.onclick=()=>{S.step=k; renderSteps(); renderDetails();}; c.appendChild(d); }
+}
+function num(key,label){ return `<label>${label}</label><input type="number" data-k="${key}" value="${S.inputs[key]}">`; }
+function sel(key,label,opts){ return `<label>${label}</label><select data-k="${key}">${opts.map(o=>`<option${o===S.inputs[key]?' selected':''}>${o}</option>`).join('')}</select>`; }
+function bindInputs(){ document.querySelectorAll('#details [data-k]').forEach(el=>{ el.onchange=()=>{ const k=el.dataset.k; S.inputs[k]=el.type==='number'?parseFloat(el.value):el.value;
+   if(['xt','xc','yt','yc','s'].includes(k)){S.done.materials=true; renderSteps();} if(k==='define_by') renderDetails(); }; }); }
+function renderDetails(){
+  const d=document.getElementById('details'); const I=S.inputs; let h='';
+  if(S.step==='geometry'){
+    h=`<h4>Details — Geometry</h4>${sel('define_by','Define tank by',['Capacity','Dimensions'])}`;
+    h+= I.define_by==='Capacity' ? num('capacity','Capacity [litres]')+num('radius','Outer radius [mm]')
+                                 : num('radius','Outer radius [mm]')+num('length','Cylinder length [mm]');
+    h+=num('thickness','Wall / liner thickness [mm]')+num('opening','Boss opening radius [mm]')+num('dome_ratio','Dome height ratio');
+    h+=sel('tank_type','Tank type',['Type 3 (Al liner)','Type 4 (PE liner)']);
+    h+=`<button class="go" id="btn-geom">Generate geometry</button><div class="hint" id="derived"></div>`;
+  } else if(S.step==='materials'){
+    h=`<h4>Details — Composite allowables [MPa]</h4><div class="hint">Load coupon-derived values to calibrate.</div>`;
+    h+=num('xt','XT — fibre tension')+num('xc','XC — fibre compression')+num('yt','YT — matrix tension')+num('yc','YC — matrix compression')+num('s','S — shear');
+  } else if(S.step==='mesh'){
+    h=`<h4>Details — Mesh</h4>${sel('density','Element size',['Coarse','Medium','Fine'])}<button class="go" id="btn-mesh">Generate mesh</button><div class="hint" id="meshinfo"></div>`;
+  } else if(S.step==='setup'){
+    h=`<h4>Details — Analysis settings</h4>${num('pressure','Design pressure [MPa]')}${sel('mode','Winding',['Optimize winding','Constant-angle screen'])}`;
+    if(I.mode==='Constant-angle screen') h+=num('angle','Winding angle [deg]')+num('band','Band thickness [mm]');
+    h+=`<div class="hint">Proceed to Solution to run the analysis.</div>`;
+  } else if(S.step==='solution'){
+    h=`<h4>Details — Solution</h4><div class="hint">Runs the real FEA, winding optimizer, and element-level CLT.</div><button class="go" id="btn-solve">Solve</button>`;
+  } else if(S.step==='results'){
+    h=`<h4>Details — Results</h4>`;
+    if(S.result){ const f=Object.keys(S.result.fields);
+      h+=`<label>Contour field</label><select id="fieldsel">${f.map(x=>`<option${x==='Failure index (Hashin)'?' selected':''}>${x}</option>`).join('')}</select>`;
+      const m=S.result.margins;
+      h+=`<div style="margin-top:10px">
+        <div class="metric"><span>FI max (smeared)</span><b>${S.result.fi_max.toFixed(3)}</b></div>
+        <div class="metric"><span>CLT critical-ply FI</span><b>${(Math.max(...S.result.fields['CLT critical-ply FI'])).toFixed(3)}</b></div>
+        <div class="metric"><span>Min reserve factor</span><b>${m.min_reserve_factor.toFixed(2)}</b></div>
+        <div class="metric"><span>Critical mode</span><b>${m.critical_mode.replace('_',' ')}</b></div>
+        <div class="metric"><span>Max deformation</span><b>${m.max_deformation_mm.toFixed(3)} mm</b></div>
+        <div class="metric"><span>Burst factor</span><b>${S.result.burst.toFixed(2)}×</b></div></div>
+        <div class="hint" style="color:#e0a23a">${S.result.decision} — not certified until coupon, ACP, and burst data exist.</div>`;
+    } else h+=`<div class="hint">Run the Solution step first.</div>`;
+  }
+  d.innerHTML=h; bindInputs();
+  const bg=document.getElementById('btn-geom'); if(bg) bg.onclick=genGeometry;
+  const bm=document.getElementById('btn-mesh'); if(bm) bm.onclick=genMesh;
+  const bs=document.getElementById('btn-solve'); if(bs) bs.onclick=solve;
+  const fs=document.getElementById('fieldsel'); if(fs) fs.onchange=()=>recolor(fs.value);
+  if(S.step==='geometry' && S.geom) document.getElementById('derived').textContent=S.geom.derived;
+  if(S.step==='mesh' && S.geom) document.getElementById('meshinfo').textContent=`${S.geom.nelem} elements · ${S.geom.nnode} nodes`;
+}
+
+// ---------- API ----------
+function spin(on,msg){document.getElementById('spin').classList.toggle('hide',!on); if(msg)document.getElementById('spinmsg').textContent=msg;}
+function setStatus(m){document.getElementById('statusmsg').textContent=m;}
+async function post(url,body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json(); if(j.error) throw new Error(j.error); return j; }
+
+async function genGeometry(){ spin(true,'Building geometry (OpenCASCADE + gmsh)…'); setStatus('Building geometry…');
+  try{ const j=await post('/api/geometry',{...S.inputs}); S.geom=j; S.done.geometry=true;
+    showMesh(j.nodes,j.elems,{grey:true}); document.getElementById('vtitle').textContent='Geometry';
+    document.getElementById('model').textContent=`${j.nelem} elements · ${j.nnode} nodes`;
+    setStatus('Geometry generated. Set materials, then mesh.'); S.step='materials'; renderSteps(); renderDetails();
+  }catch(e){ setStatus('Error: '+e.message); } spin(false); }
+
+async function genMesh(){ if(!S.geom){setStatus('Generate geometry first.');return;} spin(true,'Meshing…'); setStatus('Meshing…');
+  try{ const j=await post('/api/geometry',{...S.inputs}); S.geom=j; S.done.mesh=true;
+    showMesh(j.nodes,j.elems,{grey:true,wire:true}); document.getElementById('vtitle').textContent='Mesh';
+    document.getElementById('model').textContent=`${j.nelem} elements · ${j.nnode} nodes`;
+    setStatus(`Mesh generated (${j.nelem} elements). Configure the analysis.`); S.step='setup'; renderSteps(); renderDetails();
+  }catch(e){ setStatus('Error: '+e.message); } spin(false); }
+
+async function solve(){ if(!S.geom){setStatus('Generate the mesh first.');return;}
+  spin(true, S.inputs.mode==='Optimize winding'?'Optimizing winding (real FEA, ~90s)…':'Solving (real FEA)…');
+  setStatus('Solving…');
+  try{ const j=await post('/api/solve',{...S.inputs}); S.result=j; S.done.solution=true; S.done.results=true;
+    recolor('Failure index (Hashin)'); document.getElementById('gate').textContent=j.decision;
+    document.getElementById('gatechip').textContent=j.decision;
+    setStatus(`Solved · FI_max ${j.fi_max.toFixed(3)} · min RF ${j.margins.min_reserve_factor.toFixed(2)} · ${j.decision}`);
+    S.step='results'; renderSteps(); renderDetails();
+  }catch(e){ setStatus('Error: '+e.message); } spin(false); }
+
+function recolor(field){ if(!S.result)return; showMesh(S.result.nodes,S.result.elems,{field:S.result.fields[field]}); document.getElementById('vtitle').textContent=field; }
+
+renderSteps(); renderDetails();
+</script></body></html>
