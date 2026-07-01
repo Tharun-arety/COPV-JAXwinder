@@ -57,8 +57,8 @@ try:
     import pyvista as pv
     from pyvista.trame.ui import plotter_ui
     from trame.app import asynchronous, get_server
-    from trame.ui.vuetify3 import SinglePageWithDrawerLayout
-    from trame.widgets import vuetify3 as v3
+    from trame.ui.vuetify3 import VAppLayout
+    from trame.widgets import html, vuetify3 as v3
 except ImportError as exc:  # pragma: no cover
     raise SystemExit(
         "COPV Studio Pro needs the app extras:  pip install -e .[app]\n"
@@ -73,8 +73,8 @@ state, ctrl = server.state, server.controller
 
 pv.OFF_SCREEN = True
 plotter = pv.Plotter(off_screen=True)
-plotter.background_color = "white"
-plotter.add_text("Define the design and press Solve", font_size=11, name="hint")
+plotter.background_color = "#222831"
+plotter.add_text("Define the design and press Solve", font_size=11, name="hint", color="#c9d2db")
 
 STORE: dict = {"result": None, "poly": None}
 
@@ -93,7 +93,7 @@ def _defaults():
         # results
         "field_options": ["Failure index (Hashin)"], "field": "Failure index (Hashin)",
         "r_fi_max": "—", "r_rf": "—", "r_defmax": "—", "r_burst": "—",
-        "r_mu": "—", "r_mode": "—", "r_mass": "—", "decision": "—", "blockers": [],
+        "r_mu": "—", "r_mode": "—", "r_mass": "—", "decision": "—", "blockers": [], "mesh_info": "no mesh",
         # verification
         "conv_text": "", "export_status": "",
     })
@@ -147,7 +147,9 @@ def _draw(field: str):
         hi = lo + 1.0
     plotter.clear()
     plotter.add_mesh(poly, scalars=field, clim=(lo, hi), cmap="turbo", show_edges=False,
-                     scalar_bar_args={"title": field, "fmt": "%.3g", "n_labels": 6})
+                     scalar_bar_args={"title": field, "color": "white", "title_font_size": 15,
+                                      "label_font_size": 12, "fmt": "%.3g", "n_labels": 6, "vertical": True,
+                                      "position_x": 0.02, "position_y": 0.22, "width": 0.05, "height": 0.55})
     plotter.view_isometric()
     plotter.reset_camera()
     ctrl.view_update()
@@ -167,6 +169,7 @@ def _apply(r):
         state.r_mass = f"{r.mass_metric:.4g}"
         state.decision = r.gate["decision"].upper()
         state.blockers = list(r.gate["blockers"])
+        state.mesh_info = f"{len(r.elems)} elements · {len(r.nodes)} nodes"
         state.have_result = True
 
 
@@ -199,6 +202,18 @@ async def _run():
 def run():
     if not state.running:
         asynchronous.create_task(_run())
+
+
+@ctrl.set("run_screen")
+def run_screen():
+    state.mode = "Constant-angle screen"
+    run()
+
+
+@ctrl.set("run_optimize")
+def run_optimize():
+    state.mode = "Optimize winding"
+    run()
 
 
 @state.change("field")
@@ -277,83 +292,100 @@ def _metric(label, key):
             v3.VLabel(f"{{{{ {key} }}}}")
 
 
-with SinglePageWithDrawerLayout(server) as layout:
-    layout.title.set_text("COPV Studio Pro — stress analysis")
-    with layout.toolbar:
+CAE_CSS = """
+.v-application { font-family:'Segoe UI',system-ui,sans-serif; }
+.cae-appbar { border-bottom:1px solid #3a414b !important; }
+.cae-title { font-size:14px; font-weight:600; letter-spacing:.01em; color:#eef2f6; }
+.cae-drawer { border-right:1px solid #3a414b !important; }
+.cae-drawer .v-expansion-panel { background:#262b33 !important; }
+.cae-drawer .v-expansion-panel-title { min-height:38px !important; padding:0 14px !important; font-size:12.5px; font-weight:600; }
+.cae-drawer .v-expansion-panel-text__wrapper { padding:8px 14px 14px !important; }
+.cae-status { position:absolute; left:0; right:0; bottom:0; height:26px; display:flex; align-items:center;
+   gap:18px; padding:0 14px; font-size:11.5px; color:#9aa4b1; background:#23272e; border-top:1px solid #3a414b; z-index:3; }
+.cae-status b { color:#dfe4ea; font-weight:600; }
+.cae-status .gate { margin-left:auto; color:#e0a23a; font-weight:600; }
+.cae-view { position:absolute; top:0; left:0; right:0; bottom:26px; }
+"""
+
+
+def _drawer_body():
+    with v3.VExpansionPanels(multiple=True, model_value=([0, 3],), flat=True):
+        with v3.VExpansionPanel(title="Geometry — COPV design"):
+            with v3.VExpansionPanelText():
+                _num("outer_radius", "Outer radius [mm]")
+                _num("cyl_length", "Cylinder length [mm]")
+                _num("wall_thickness", "Structural wall [mm]")
+                _num("opening_radius", "Boss opening radius [mm]")
+                _num("dome_ratio", "Dome height ratio")
+                _num("pressure", "Design pressure [MPa]")
+                v3.VSelect(v_model=("tank_type",), items=("['Type 3 (Al liner)', 'Type 4 (PE liner)']",),
+                           label="Tank type", density="compact", variant="outlined", hide_details=True)
+        with v3.VExpansionPanel(title="Material allowables [MPa]"):
+            with v3.VExpansionPanelText():
+                v3.VCardSubtitle("Load coupon-derived values to calibrate.", classes="px-0 pb-2 text-caption")
+                _num("xt", "XT — fibre tension")
+                _num("xc", "XC — fibre compression")
+                _num("yt", "YT — matrix tension")
+                _num("yc", "YC — matrix compression")
+                _num("s", "S — shear")
+        with v3.VExpansionPanel(title="Analysis · verification"):
+            with v3.VExpansionPanelText():
+                v3.VSelect(v_model=("mode",), items=("['Optimize winding', 'Constant-angle screen']",),
+                           label="Mode", density="compact", variant="outlined", hide_details=True, classes="mb-2")
+                _num("angle_deg", "Screen angle [deg]")
+                _num("band_mm", "Screen band [mm]")
+                v3.VBtn("Solve", click=ctrl.run, color="teal", block=True, loading=("running",), classes="mt-1 mb-2")
+                v3.VBtn("Mesh-convergence study", click=ctrl.converge, variant="tonal", block=True, size="small")
+                v3.VCardText("{{ conv_text }}", v_show=("conv_text.length > 0",), classes="pa-2 mt-2 text-caption",
+                             style="white-space:pre; font-family:monospace; background:rgba(255,255,255,0.05); border-radius:6px;")
+        with v3.VExpansionPanel(title="Results · margins"):
+            with v3.VExpansionPanelText():
+                v3.VSelect(v_model=("field",), items=("field_options",), label="Contour field",
+                           density="compact", variant="outlined", hide_details=True, classes="mb-3")
+                _metric("FI max (Hashin)", "r_fi_max")
+                _metric("Min reserve factor", "r_rf")
+                _metric("Critical mode", "r_mode")
+                _metric("Max deformation", "r_defmax")
+                _metric("Burst factor", "r_burst")
+                _metric("Friction μ req / allow", "r_mu")
+                _metric("Mass metric", "r_mass")
+                with v3.VAlert(v_show=("have_result",), type="warning", density="compact", variant="tonal", classes="mt-2"):
+                    v3.VCardText("{{ decision }} — not certified until coupon allowables, ACP cross-validation, "
+                                 "and burst correlation are supplied.", classes="pa-0 text-caption")
+        with v3.VExpansionPanel(title="Verification handoff · export"):
+            with v3.VExpansionPanelText():
+                v3.VBtn("Export Abaqus / ACP deck", click=ctrl.export_deck, variant="tonal", block=True, size="small", classes="mb-2")
+                v3.VBtn("Export HTML report", click=ctrl.export_report, variant="tonal", block=True, size="small")
+                v3.VCardText("{{ export_status }}", v_show=("export_status.length > 0",),
+                             classes="pa-0 pt-2 text-caption text-medium-emphasis")
+
+
+with VAppLayout(server) as layout:
+    html.Style(CAE_CSS)
+    with v3.VAppBar(theme="dark", density="compact", flat=True, color="#23272e", elevation=0, classes="cae-appbar"):
+        v3.VIcon("mdi-hexagon-multiple", color="teal", classes="ml-4 mr-2")
+        html.Span("COPV Studio Pro", classes="cae-title")
+        html.Span("stress analysis", classes="text-caption text-medium-emphasis ml-3")
         v3.VSpacer()
-        v3.VProgressCircular(indeterminate=("running",), v_show=("running",), size=22, width=3, classes="mr-3")
-        v3.VChip("{{ decision }}", v_show=("have_result",), color="warning", size="small", classes="mr-2")
+        v3.VBtn("Solve", click=ctrl.run_screen, size="small", variant="tonal", color="teal",
+                prepend_icon="mdi-play", loading=("running",), classes="mr-2")
+        v3.VBtn("Optimize", click=ctrl.run_optimize, size="small", variant="flat", color="teal",
+                prepend_icon="mdi-auto-fix", loading=("running",), classes="mr-3")
+        v3.VChip("{{ decision }}", v_show=("have_result",), color="warning", size="small", variant="flat", classes="mr-4")
 
-    with layout.drawer as drawer:
-        drawer.width = 380
-        with v3.VContainer(classes="pa-3"):
-            with v3.VExpansionPanels(multiple=True, model_value=([0, 3],)):
-                # Geometry
-                with v3.VExpansionPanel(title="Geometry (COPV design)"):
-                    with v3.VExpansionPanelText():
-                        _num("outer_radius", "Outer radius [mm]")
-                        _num("cyl_length", "Cylinder length [mm]")
-                        _num("wall_thickness", "Structural wall [mm]")
-                        _num("opening_radius", "Boss opening radius [mm]")
-                        _num("dome_ratio", "Dome height ratio")
-                        _num("pressure", "Design pressure [MPa]")
-                        v3.VSelect(v_model=("tank_type",), items=("['Type 3 (Al liner)', 'Type 4 (PE liner)']",),
-                                   label="Tank type", density="compact", variant="outlined", hide_details=True)
-                # Material
-                with v3.VExpansionPanel(title="Material allowables [MPa]"):
-                    with v3.VExpansionPanelText():
-                        v3.VCardSubtitle("Load coupon-derived values to calibrate.", classes="px-0 pb-2 text-caption")
-                        _num("xt", "XT — fibre tension")
-                        _num("xc", "XC — fibre compression")
-                        _num("yt", "YT — matrix tension")
-                        _num("yc", "YC — matrix compression")
-                        _num("s", "S — shear")
-                # Analysis
-                with v3.VExpansionPanel(title="Analysis"):
-                    with v3.VExpansionPanelText():
-                        v3.VSelect(v_model=("mode",), items=("['Optimize winding', 'Constant-angle screen']",),
-                                   label="Mode", density="compact", variant="outlined", hide_details=True, classes="mb-2")
-                        _num("angle_deg", "Screen angle [deg]")
-                        _num("band_mm", "Screen band [mm]")
-                        v3.VBtn("Solve", click=ctrl.run, color="primary", block=True,
-                                loading=("running",), classes="mt-1 mb-2")
-                        v3.VBtn("Mesh-convergence study", click=ctrl.converge, variant="tonal",
-                                block=True, size="small")
-                        v3.VCardText("{{ conv_text }}", v_show=("conv_text.length > 0",),
-                                     classes="pa-2 mt-2 text-caption",
-                                     style="white-space: pre; font-family: monospace; background: rgba(0,0,0,0.04); border-radius: 6px;")
-                # Results
-                with v3.VExpansionPanel(title="Results · margins"):
-                    with v3.VExpansionPanelText():
-                        v3.VSelect(v_model=("field",), items=("field_options",), label="Contour field",
-                                   density="compact", variant="outlined", hide_details=True, classes="mb-3")
-                        _metric("FI max (Hashin)", "r_fi_max")
-                        _metric("Min reserve factor", "r_rf")
-                        _metric("Critical mode", "r_mode")
-                        _metric("Max deformation", "r_defmax")
-                        _metric("Burst factor", "r_burst")
-                        _metric("Friction μ req / allow", "r_mu")
-                        _metric("Mass metric", "r_mass")
-                        with v3.VAlert(v_show=("have_result",), type="warning", density="compact",
-                                       variant="tonal", classes="mt-2"):
-                            v3.VCardText("{{ decision }} — not certified until coupon allowables, ACP "
-                                         "cross-validation, and burst correlation are supplied.",
-                                         classes="pa-0 text-caption")
-                # Export
-                with v3.VExpansionPanel(title="Verification handoff · export"):
-                    with v3.VExpansionPanelText():
-                        v3.VBtn("Export Abaqus / ACP deck", click=ctrl.export_deck, variant="tonal",
-                                block=True, size="small", classes="mb-2")
-                        v3.VBtn("Export HTML report", click=ctrl.export_report, variant="tonal",
-                                block=True, size="small")
-                        v3.VCardText("{{ export_status }}", v_show=("export_status.length > 0",),
-                                     classes="pa-0 pt-2 text-caption text-medium-emphasis")
+    with v3.VNavigationDrawer(theme="dark", permanent=True, width=360, color="#262b33", classes="cae-drawer"):
+        with v3.VContainer(classes="pa-2"):
+            _drawer_body()
 
-    with layout.content:
-        with v3.VContainer(fluid=True, classes="pa-0 fill-height"):
-            with v3.VCard(classes="ma-2 flex-grow-1 d-flex flex-column", style="height: calc(100vh - 100px);"):
-                plotter_ui(plotter, mode="server", style="flex: 1 1 auto;")
-            v3.VBanner("{{ status }}", density="compact", classes="ma-2", icon="mdi-information-outline")
+    with v3.VMain(theme="dark"):
+        with html.Div(style="position:relative; height:calc(100vh - 48px); width:100%;"):
+            with html.Div(classes="cae-view"):
+                plotter_ui(plotter, mode="server", style="width:100%; height:100%;")
+            with html.Div(classes="cae-status"):
+                html.Span("Model: ")
+                html.Span("{{ mesh_info }}", style="color:#dfe4ea; font-weight:600;")
+                html.Span("{{ status }}", classes="ml-4")
+                html.Span("{{ decision }}", classes="gate")
 
 
 def main():
