@@ -71,7 +71,54 @@ def api_geometry(p: dict) -> dict:
         CACHE["geom"] = geom
     return {"nodes": np.asarray(bundle["nodes"], np.float64).round(3).tolist(),
             "elems": np.asarray(bundle["elems"], np.int64).tolist(),
-            "derived": derived, "nelem": int(len(bundle["elems"])), "nnode": int(len(bundle["nodes"]))}
+            "derived": derived, "nelem": int(len(bundle["elems"])), "nnode": int(len(bundle["nodes"])),
+            "geom": {"outer_radius": geom.outer_radius, "mid_radius": geom.mid_radius,
+                     "cyl_length": geom.cylinder_length, "thickness": geom.thickness,
+                     "opening": geom.opening_radius, "dome_ratio": geom.dome_height_ratio}}
+
+
+def _winding(r, geom) -> dict:
+    """Actual discrete winding course plan (real helical courses + hoop rings) from the
+    optimizer layout. Only available after Optimize winding."""
+    if r.mode != "full_optimize" or r.winding_result is None:
+        return {"available": False, "reason": "Run Optimize winding to generate the course plan."}
+    try:
+        from copv_opt.course_planner import DiscreteCoursePlanningConfig, build_discrete_winding_plan_from_layout
+        from copv_opt.geometry import copv_surface_from_sphi_np
+        from copv_opt.visualize import build_winding_process_layout_data
+        layout = build_winding_process_layout_data(r.winding_result, geom, family_count=16, sample_count=400)
+        plan = build_discrete_winding_plan_from_layout(layout, geom, DiscreteCoursePlanningConfig(emit_path_points=True))
+        helical = []
+        for c in plan["helical_courses"]:
+            pts = c.get("path_points_mm")
+            if pts is None:
+                continue
+            arr = np.asarray(pts, dtype=np.float64)
+            if arr.ndim != 2 or arr.shape[0] < 2:
+                continue
+            helical.append({"hand": c["handedness"], "points": arr.round(2).tolist()})
+            if len(helical) >= 600:
+                break
+        hoops = []
+        for ring in plan["hoop_rings"]:
+            mid = 0.5 * (ring["start_s_mm"] + ring["stop_s_mm"])
+            surf = copv_surface_from_sphi_np(geom.mid_radius, np.array([mid]), np.array([0.0]),
+                                             geom.cylinder_length, geom.opening_radius,
+                                             dome_height_ratio=geom.dome_height_ratio)
+            pt = np.asarray(surf["points"])[0]
+            hoops.append({"z": float(pt[2]), "radius": float(np.hypot(pt[0], pt[1]))})
+        m = plan["metrics"]
+        wa = np.asarray(r.fields.get("Winding angle [deg]", []), dtype=np.float64)
+        return {"available": True, "helical": helical, "hoops": hoops,
+                "n_pairs": int(m["total_course_pairs"]), "n_courses": int(m["total_individual_courses"]),
+                "n_hoops": int(m["total_hoop_rings"]), "cut_restart": int(m["total_cut_restart_events"]),
+                "angle_mean": float(np.mean(wa)) if wa.size else None,
+                "angle_min": float(np.min(wa)) if wa.size else None,
+                "angle_max": float(np.max(wa)) if wa.size else None,
+                "warnings": list(plan.get("warnings", []))[:3]}
+    except Exception as exc:
+        traceback.print_exc()
+        return {"available": False, "reason": f"course plan failed: {exc}"}
 
 
 def api_solve(p: dict) -> dict:
@@ -84,13 +131,14 @@ def api_solve(p: dict) -> dict:
             r = full_optimize(geom, MATERIAL, failure_cfg=failure)
         else:
             r = fast_screen(geom, MATERIAL, float(p["angle"]), float(p["band"]), failure_cfg=failure)
+        winding = _winding(r, geom)
     return {"nodes": np.asarray(r.nodes, np.float64).round(3).tolist(),
             "elems": np.asarray(r.elems, np.int64).tolist(),
             "fields": {k: np.asarray(v, np.float64).round(5).tolist() for k, v in r.fields.items()},
             "margins": {k: (float(v) if isinstance(v, (int, float, np.floating)) else v) for k, v in r.margins.items()},
             "burst": float(r.burst_factor), "fi_max": float(r.fi_max),
             "mu": None if r.mu_max_required is None else float(r.mu_max_required),
-            "decision": r.gate["decision"].upper(), "mode": r.mode}
+            "decision": r.gate["decision"].upper(), "mode": r.mode, "winding": winding}
 
 
 class Handler(BaseHTTPRequestHandler):

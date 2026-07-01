@@ -70,9 +70,9 @@ const S = {
   inputs:{ define_by:'Capacity', capacity:9, radius:100, length:220, thickness:8, opening:10, dome_ratio:0.7,
            tank_type:'Type 3 (Al liner)', xt:2200, xc:1400, yt:70, yc:220, s:120,
            density:'Medium', pressure:6.85, mode:'Constant-angle screen', angle:42, band:8 },
-  done:{geometry:false,materials:false,mesh:false,setup:false,solution:false,results:false}
+  done:{geometry:false,materials:false,mesh:false,setup:false,solution:false,winding:false,results:false}
 };
-const STEPS=[['geometry','Geometry'],['materials','Materials'],['mesh','Mesh'],['setup','Analysis settings'],['solution','Solution'],['results','Results']];
+const STEPS=[['geometry','Geometry'],['materials','Materials'],['mesh','Mesh'],['setup','Analysis settings'],['solution','Solution'],['winding','Winding'],['results','Results']];
 
 // ---------- three.js ----------
 const view=document.querySelector('.view');
@@ -121,12 +121,39 @@ function showMesh(nodes,elems,{grey=false, wire=false, field=null}={}){
   else L.classList.add('none');
 }
 
+// ---------- composite winding (discrete course plan) ----------
+const windGroup=new THREE.Group(); scene.add(windGroup); windGroup.visible=false;
+function clearGroup(g){ while(g.children.length){const c=g.children.pop(); if(c.geometry)c.geometry.dispose(); if(c.material&&c.material.dispose)c.material.dispose();} }
+function drawWinding(){
+  clearGroup(windGroup);
+  const R=S.result; if(!R||!R.winding||!R.winding.available) return;
+  const g=buildGeometry(R.nodes,R.elems); const col=g.attributes.color.array;
+  for(let i=0;i<col.length;i++) col[i]=0.55; g.attributes.color.needsUpdate=true;
+  windGroup.add(new THREE.Mesh(g,new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide,transparent:true,opacity:0.32,flatShading:true})));
+  const teal=new THREE.LineBasicMaterial({color:0x1d9e75}), mag=new THREE.LineBasicMaterial({color:0xc065d0});
+  for(const c of R.winding.helical){ const n=c.points.length, pos=new Float32Array(n*3);
+    for(let i=0;i<n;i++) pos.set(c.points[i],i*3);
+    const lg=new THREE.BufferGeometry(); lg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    windGroup.add(new THREE.Line(lg, c.hand==='clockwise'?teal:mag)); }
+  const amber=new THREE.MeshStandardMaterial({color:0xd7a53a,metalness:0.2,roughness:0.5});
+  for(const h of R.winding.hoops){ const t=new THREE.Mesh(new THREE.TorusGeometry(h.radius,1.5,8,64),amber); t.position.set(0,0,h.z); windGroup.add(t); }
+  fitCamera(g);
+}
+function onStep(){
+  const w=S.result&&S.result.winding;
+  const winding = (S.step==='winding' && w && w.available);
+  if(winding){ drawWinding(); windGroup.visible=true; if(meshObj)meshObj.visible=false; if(wireObj)wireObj.visible=false;
+    document.getElementById('vtitle').textContent='Composite winding — course plan';
+    document.getElementById('legend').classList.add('none'); }
+  else { windGroup.visible=false; if(meshObj)meshObj.visible=true; if(wireObj)wireObj.visible=true; }
+}
+
 // ---------- UI ----------
 function renderSteps(){
   const c=document.getElementById('steps'); c.innerHTML='';
   for(const [k,label] of STEPS){ const d=document.createElement('div');
     d.className='step'+(S.step===k?' on':'')+(S.done[k]?' done':'');
-    d.innerHTML=`<span class="ic"></span>${label}`; d.onclick=()=>{S.step=k; renderSteps(); renderDetails();}; c.appendChild(d); }
+    d.innerHTML=`<span class="ic"></span>${label}`; d.onclick=()=>{S.step=k; renderSteps(); renderDetails(); onStep();}; c.appendChild(d); }
 }
 function num(key,label){ return `<label>${label}</label><input type="number" data-k="${key}" value="${S.inputs[key]}">`; }
 function sel(key,label,opts){ return `<label>${label}</label><select data-k="${key}">${opts.map(o=>`<option${o===S.inputs[key]?' selected':''}>${o}</option>`).join('')}</select>`; }
@@ -152,6 +179,20 @@ function renderDetails(){
     h+=`<div class="hint">Proceed to Solution to run the analysis.</div>`;
   } else if(S.step==='solution'){
     h=`<h4>Details — Solution</h4><div class="hint">Runs the real FEA, winding optimizer, and element-level CLT.</div><button class="go" id="btn-solve">Solve</button>`;
+  } else if(S.step==='winding'){
+    h=`<h4>Details — Composite winding</h4>`;
+    const w=S.result&&S.result.winding;
+    if(w&&w.available){
+      h+=`<div style="margin-top:4px">
+        <div class="metric"><span>Helical course pairs</span><b>${w.n_pairs}</b></div>
+        <div class="metric"><span>Individual courses</span><b>${w.n_courses}</b></div>
+        <div class="metric"><span>Hoop rings</span><b>${w.n_hoops}</b></div>
+        <div class="metric"><span>Cut / restart events</span><b>${w.cut_restart}</b></div>
+        <div class="metric"><span>Optimized angle</span><b>${w.angle_mean?w.angle_mean.toFixed(0):'—'}° (${w.angle_min?w.angle_min.toFixed(0):'—'}–${w.angle_max?w.angle_max.toFixed(0):'—'}°)</b></div>
+      </div>
+      <div class="hint" style="margin-top:8px"><span style="color:#1d9e75">━</span> clockwise &nbsp; <span style="color:#c065d0">━</span> counter-clockwise &nbsp; <span style="color:#d7a53a">◯</span> hoop</div>
+      <div class="hint">Discrete course plan from the optimized winding — the planner's axisymmetric helical families + hoop rings (real counts), not a full circumferential weave.</div>`;
+    } else h+=`<div class="hint">${w&&w.reason?w.reason:'Run the Solution step with mode = Optimize winding to generate the course plan.'}</div>`;
   } else if(S.step==='results'){
     h=`<h4>Details — Results</h4>`;
     if(S.result){ const f=Object.keys(S.result.fields);
@@ -203,7 +244,8 @@ async function solve(){ if(!S.geom){setStatus('Generate the mesh first.');return
     recolor('Failure index (Hashin)'); document.getElementById('gate').textContent=j.decision;
     document.getElementById('gatechip').textContent=j.decision;
     setStatus(`Solved · FI_max ${j.fi_max.toFixed(3)} · min RF ${j.margins.min_reserve_factor.toFixed(2)} · ${j.decision}`);
-    S.step='results'; renderSteps(); renderDetails();
+    const w=j.winding; S.done.winding=!!(w&&w.available);
+    S.step=(w&&w.available)?'winding':'results'; renderSteps(); renderDetails(); onStep();
   }catch(e){ setStatus('Error: '+e.message); } spin(false); }
 
 function recolor(field){ if(!S.result)return; showMesh(S.result.nodes,S.result.elems,{field:S.result.fields[field]}); document.getElementById('vtitle').textContent=field; }
