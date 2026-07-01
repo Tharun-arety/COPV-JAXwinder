@@ -17,6 +17,28 @@ pip install -e .[app]
 This pulls in `trame`, `trame-vuetify`, and `trame-vtk` on top of the engine
 dependencies. Use the Python environment that already has JAX working.
 
+## End-to-end pipeline (one command)
+
+`python -m app.pipeline` runs the whole toolchain and prints a staged engineering log,
+then opens an interactive 3D results viewer:
+
+```
+1. CAD + mesh          OpenCASCADE geometry, gmsh shell mesh
+2. FEM assembly        winding drives element-level material (rotated ply stiffness)
+3. Baseline solve      unreinforced compliance
+4. Optimization        L-BFGS winding design for best compliance
+5. Classical Laminate  per-ply stresses/failure at the cylinder (+ Type-3 liner)
+6. Showcase            self-contained interactive 3D results viewer
+```
+
+```bash
+python -m app.pipeline --pressure 6.85
+python -m app.pipeline --pressure 20 --type3 --liner AL6061-T6 --liner-thickness 3
+```
+
+Real solve throughout, reusing the verified engine, CLT (`clt.py`), and liner
+(`liner.py`) modules. For the interactive CAE-style GUI, use `app.studio_app`.
+
 ## Demos (no install — open in a browser)
 
 Two standalone HTML demos for showing the tool without running Python:

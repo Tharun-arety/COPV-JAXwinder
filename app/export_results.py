@@ -154,19 +154,8 @@ def _parse():
     return p.parse_args()
 
 
-def main() -> None:
-    args = _parse()
-    geom = GeometryConfig(outer_radius=args.radius, cylinder_length=args.length,
-                          thickness=args.thickness, pressure=args.pressure)
-    material = MaterialConfig()
-    failure = FailureConfig(allowables=MaterialAllowables(), margin_of_safety=1.0)
-
-    print("Solving (real FEA)…")
-    if args.optimize:
-        r = full_optimize(geom, material, failure_cfg=failure)
-    else:
-        r = fast_screen(geom, material, args.angle, args.band, failure_cfg=failure)
-
+def write_results_viewer(r, out: Path) -> Path:
+    """Build the self-contained interactive results viewer from a DesignResult."""
     data = {
         "nodes": np.asarray(r.nodes, dtype=np.float64).round(4).tolist(),
         "elems": np.asarray(r.elems, dtype=np.int64).tolist(),
@@ -182,10 +171,26 @@ def main() -> None:
             .replace("__MODE__", r.mode.replace("_", " "))
             .replace("__NELEM__", str(len(r.elems)))
             .replace("__DECISION__", r.gate["decision"].upper()))
-
-    out = args.out.resolve()
+    out = Path(out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
+    return out
+
+
+def main() -> None:
+    args = _parse()
+    geom = GeometryConfig(outer_radius=args.radius, cylinder_length=args.length,
+                          thickness=args.thickness, pressure=args.pressure)
+    material = MaterialConfig()
+    failure = FailureConfig(allowables=MaterialAllowables(), margin_of_safety=1.0)
+
+    print("Solving (real FEA)…")
+    if args.optimize:
+        r = full_optimize(geom, material, failure_cfg=failure)
+    else:
+        r = fast_screen(geom, material, args.angle, args.band, failure_cfg=failure)
+
+    out = write_results_viewer(r, args.out)
     print(f"FI_max {r.fi_max:.3f} · min RF {r.margins['min_reserve_factor']:.2f} · "
           f"critical {r.margins['critical_mode']} · burst {r.burst_factor:.2f}x")
     print(f"Wrote {out}")
