@@ -22,7 +22,7 @@ import hashlib
 import os
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -70,12 +70,59 @@ class DesignResult:
     angle_deg: float | None                 # constant angle, fast screen only
     disp_max: float
     gate: dict[str, Any] = field(default_factory=dict)
+    # Full post-processing fields a stress engineer reviews (per-element, host numpy).
+    fields: dict[str, np.ndarray] = field(default_factory=dict)
+    disp_node: Any = None                   # (M,) per-node displacement magnitude [mm]
+    margins: dict[str, Any] = field(default_factory=dict)
     # Engine handles for downstream phases (not serialized; in-process only).
     geom: Any = None
     material: Any = None
     state: Any = None                       # FEA state dict
     winding_result: Any = None              # hostified optimizer result (full_optimize only)
     layout: Any = None                      # winding process layout (full_optimize only)
+
+
+def _reserve_factor(fi: np.ndarray) -> np.ndarray:
+    """RF = 1/sqrt(FI): the factor the load can be scaled by before first-ply failure."""
+    return 1.0 / np.sqrt(np.maximum(np.asarray(fi, dtype=np.float64), 1e-12))
+
+
+def assemble_fields(
+    failure_like: dict[str, Any],
+    thickness: Any,
+    winding_angle_deg: np.ndarray,
+    displacement: Any,
+    nnodes: int,
+) -> tuple[dict[str, np.ndarray], np.ndarray, dict[str, Any]]:
+    """Build the reviewer-facing result fields + margins from a solved state.
+
+    ``failure_like`` is either the evaluate_hashin_failure output (fast screen) or the
+    optimizer result (full optimize) — both carry the same per-mode keys."""
+    fi = np.asarray(failure_like["failure_index"], dtype=np.float64)
+    fields = {
+        "Failure index (Hashin)": fi,
+        "Reserve factor": _reserve_factor(fi),
+        "Fibre tension": np.asarray(failure_like["fiber_tension"], dtype=np.float64),
+        "Fibre compression": np.asarray(failure_like["fiber_compression"], dtype=np.float64),
+        "Matrix tension": np.asarray(failure_like["matrix_tension"], dtype=np.float64),
+        "Matrix compression": np.asarray(failure_like["matrix_compression"], dtype=np.float64),
+        "Laminate thickness [mm]": np.asarray(thickness, dtype=np.float64),
+        "Winding angle [deg]": np.asarray(winding_angle_deg, dtype=np.float64),
+    }
+    disp = np.asarray(displacement, dtype=np.float64).reshape(nnodes, 3)
+    dmag = np.linalg.norm(disp, axis=1)
+    fi_max = float(np.max(fi))
+    crit = int(np.argmax(fi))
+    mode_names = ["Fibre tension", "Fibre compression", "Matrix tension", "Matrix compression"]
+    mode_vals = [float(fields[m][crit]) for m in mode_names]
+    margins = {
+        "fi_max": fi_max,
+        "min_reserve_factor": float(1.0 / np.sqrt(max(fi_max, 1e-12))),
+        "critical_element": crit,
+        "critical_mode": mode_names[int(np.argmax(mode_vals))],
+        "max_deformation_mm": float(np.max(dmag)),
+    }
+    return fields, dmag, margins
 
 
 def release_gate(fi_max: float, mu_max_required: float | None, mu_allowable: float) -> dict[str, Any]:
@@ -216,7 +263,9 @@ def fast_screen(
     failure_metrics = evaluate_hashin_failure(state, res["displacement"], c_eff, res["fiber_dirs"], failure)
     fi = np.asarray(failure_metrics["failure_index"], dtype=np.float64)
     fi_max = float(np.max(fi))
-    disp = np.asarray(res["displacement"], dtype=np.float64).reshape(-1, 3)
+    nnodes = len(bundle["nodes"])
+    winding_angle = np.full(fi.shape, float(angle_deg))
+    fields, dmag, margins = assemble_fields(failure_metrics, total, winding_angle, res["displacement"], nnodes)
 
     return DesignResult(
         mode="fast_screen",
@@ -230,12 +279,35 @@ def fast_screen(
         mu_max_required=None,
         mu_allowable=friction.mu_max,
         angle_deg=float(angle_deg),
-        disp_max=float(np.max(np.linalg.norm(disp, axis=1))),
+        disp_max=float(np.max(dmag)),
         gate=release_gate(fi_max, None, friction.mu_max),
+        fields=fields,
+        disp_node=dmag,
+        margins=margins,
         geom=geom,
         material=material,
         state=state,
     )
+
+
+def mesh_convergence(
+    geom: GeometryConfig,
+    material: MaterialConfig,
+    angle_deg: float,
+    band_thickness: float,
+    hmax_list: list[float] = (36.0, 28.0, 20.0, 14.0),
+) -> list[dict[str, Any]]:
+    """Run the constant-angle screen at several mesh densities and report FI_max.
+
+    A stress engineer needs to see the result is mesh-converged before trusting it.
+    Returns one row per density; the trend should flatten as the mesh refines."""
+    rows: list[dict[str, Any]] = []
+    for hmax in hmax_list:
+        g = replace(geom, mesh_hmax=float(hmax), mesh_hmin=min(geom.mesh_hmin, float(hmax)))
+        r = fast_screen(g, material, angle_deg, band_thickness)
+        rows.append({"mesh_hmax": float(hmax), "elements": int(len(r.elems)), "fi_max": r.fi_max,
+                     "min_reserve_factor": r.margins["min_reserve_factor"]})
+    return rows
 
 
 def screen_profile(
@@ -352,6 +424,10 @@ def full_optimize(
 
     layout = build_winding_process_layout_data(result, geom, family_count=8, sample_count=320)
 
+    nnodes = len(bundle["nodes"])
+    winding_angle = np.degrees(np.asarray(result["winding_angle_field"], dtype=np.float64))
+    fields, dmag, margins = assemble_fields(result, result["thickness"], winding_angle, result["displacement"], nnodes)
+
     return DesignResult(
         mode="full_optimize",
         nodes=bundle["nodes"],
@@ -364,8 +440,11 @@ def full_optimize(
         mu_max_required=mu,
         mu_allowable=friction.mu_max,
         angle_deg=None,
-        disp_max=float(np.max(np.linalg.norm(disp, axis=1))),
+        disp_max=float(np.max(dmag)),
         gate=release_gate(fi_max, mu, friction.mu_max),
+        fields=fields,
+        disp_node=dmag,
+        margins=margins,
         geom=geom,
         material=material,
         state=state,

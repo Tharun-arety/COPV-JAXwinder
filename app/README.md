@@ -31,11 +31,31 @@ Two standalone HTML demos for showing the tool without running Python:
 Both use numbers from / scaled from a validated reference run, and are labelled as
 screening estimates. They complement, not replace, the live engine GUI below.
 
-## Run the GUI (live engine)
+## Stress-analysis application (real engine)
+
+`python -m app.studio_app` — **COPV Studio Pro**, the real-engine CAE tool a stress
+engineer drives. Unlike the HTML demos it runs the actual JAX shell-element solver on
+a real COPV design and post-processes the real fields:
+
+- real geometry inputs (radii, lengths, boss, wall, pressure) and Type 3/4
+- editable coupon allowables (XT/XC/YT/YC/S) — load your own to calibrate it from a
+  literature screen into a primary tool
+- real solve + real L-BFGS winding optimization
+- interactive 3D contour of the true fields: failure index, all four Hashin modes,
+  reserve factor, deformation, thickness, winding angle
+- reserve-factor margins table + honest release gate
+- mesh-convergence verification study
+- one-click Abaqus/ACP deck export and HTML report
+
+It stays `do_not_release` until coupon allowables, ACP cross-validation, and
+burst-test correlation are supplied — those are wired as explicit steps.
+
+## Configurator GUI (requirement-driven)
 
 ```bash
 python -m app.main
 ```
+The simpler front door: size a tank from a volume/pressure requirement.
 
 Opens at `http://localhost:8080`. Set a requirement in the left drawer, pick a mode,
 press **Run**:
