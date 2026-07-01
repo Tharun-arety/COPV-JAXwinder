@@ -374,7 +374,9 @@ with VAppLayout(server) as layout:
     with v3.VMain(theme="dark"):
         with html.Div(style="position:relative;height:calc(100vh - 48px);width:100%;"):
             with html.Div(classes="cae-view"):
-                plotter_ui(plotter, mode="server", style="width:100%;height:100%;")
+                _view = plotter_ui(plotter, mode="client", style="width:100%;height:100%;")
+                ctrl.view_update = _view.update
+                ctrl.view_reset_camera = _view.reset_camera
             with html.Div(classes="cae-status"):
                 html.Span("Model: "); html.Span("{{ mesh_info }}", style="color:#dfe4ea;font-weight:600")
                 html.Span("{{ status }}", classes="ml-4")
