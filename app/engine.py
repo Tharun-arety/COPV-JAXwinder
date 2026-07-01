@@ -267,6 +267,12 @@ def fast_screen(
     winding_angle = np.full(fi.shape, float(angle_deg))
     fields, dmag, margins = assemble_fields(failure_metrics, total, winding_angle, res["displacement"], nnodes)
 
+    # element-level per-ply CLT (base 0 + constant-angle helical band, no hoop)
+    from copv_opt.clt_fem import element_clt_fields
+    ne = len(fi)
+    fields.update(element_clt_fields(state, res["displacement"], winding_angle,
+                                     np.ones(ne, bool), np.zeros(ne, bool), material, failure.allowables))
+
     return DesignResult(
         mode="fast_screen",
         nodes=bundle["nodes"],
@@ -427,6 +433,13 @@ def full_optimize(
     nnodes = len(bundle["nodes"])
     winding_angle = np.degrees(np.asarray(result["winding_angle_field"], dtype=np.float64))
     fields, dmag, margins = assemble_fields(result, result["thickness"], winding_angle, result["displacement"], nnodes)
+
+    # element-level per-ply CLT: base 0 + helical +/-alpha + hoop, per element
+    from copv_opt.clt_fem import element_clt_fields
+    has_helical = np.asarray(result["helical_thickness_field"], dtype=np.float64) > 1e-6
+    has_hoop = np.asarray(result["hoop_thickness_field"], dtype=np.float64) > 1e-6
+    fields.update(element_clt_fields(state, result["displacement"], winding_angle,
+                                     has_helical, has_hoop, material, failure.allowables))
 
     return DesignResult(
         mode="full_optimize",
