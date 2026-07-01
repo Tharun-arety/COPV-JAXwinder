@@ -24,6 +24,19 @@ from pathlib import Path
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
+import signal as _signal_mod
+import threading as _threading
+
+# gmsh installs a SIGINT handler via signal.signal() on init, which raises off the
+# main thread; the solve runs in a worker thread. Make signal.signal() a no-op off
+# the main thread (the Ctrl+C handler is irrelevant in a web server).
+_real_signal = _signal_mod.signal
+def _thread_safe_signal(sig, handler):
+    if _threading.current_thread() is _threading.main_thread():
+        return _real_signal(sig, handler)
+    return None
+_signal_mod.signal = _thread_safe_signal
+
 import numpy as np
 
 _SRC = Path(__file__).resolve().parents[1] / "src"

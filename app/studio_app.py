@@ -33,6 +33,20 @@ from pathlib import Path
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
+import signal as _signal_mod
+import threading as _threading
+
+# gmsh.initialize() installs a SIGINT handler via signal.signal(), which raises
+# "signal only works in main thread" when the solve runs in a worker thread. In a
+# web server that Ctrl+C handler is irrelevant, so make signal.signal() a no-op off
+# the main thread. Must be installed before any solve triggers gmsh.
+_real_signal = _signal_mod.signal
+def _thread_safe_signal(sig, handler):
+    if _threading.current_thread() is _threading.main_thread():
+        return _real_signal(sig, handler)
+    return None
+_signal_mod.signal = _thread_safe_signal
+
 import numpy as np
 
 _SRC = Path(__file__).resolve().parents[1] / "src"
@@ -73,7 +87,7 @@ def _defaults():
         # material allowables (MPa) — editable; load coupon-derived values here
         "xt": 2200.0, "xc": 1400.0, "yt": 70.0, "yc": 220.0, "s": 120.0,
         # analysis
-        "mode": "Optimize winding", "angle_deg": 42.0, "band_mm": 8.0,
+        "mode": "Constant-angle screen", "angle_deg": 42.0, "band_mm": 8.0,
         "running": False, "status": "Idle. Define the design and run an analysis.",
         "have_result": False,
         # results
