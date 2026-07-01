@@ -200,35 +200,71 @@ const overwrap=new THREE.Mesh(geo,overMat); scene.add(overwrap);
 const wire=new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.LatheGeometry(copvPoints(1.0),48)),
   new THREE.LineBasicMaterial({color:0x0a0f14,transparent:true,opacity:0.18})); wire.visible=false; scene.add(wire);
 
-// ---- winding tows ----
+// ---- winding: flat tow bands laid to full coverage ----
 const windGroup=new THREE.Group(); scene.add(windGroup);
 const profile=copvPoints(1.0);
-function buildHelical(r0, offset, hand, phi0){
+const BAND_W=0.18, N_FAM=34, TOW_OFF=0.028;   // band width, passes per +/- family
+
+// geodesic path with per-point outward surface normal, so bands lie flat on the shell
+function helicalSamples(r0, hand, phi0){
   const sub=profile.filter(p=>p.x>=r0); if(sub.length<3) return null;
-  let phi=phi0; const out=[new THREE.Vector3((sub[0].x+offset)*Math.cos(phi), sub[0].y, (sub[0].x+offset)*Math.sin(phi))];
-  for(let i=1;i<sub.length;i++){
-    const ds=Math.hypot(sub[i].x-sub[i-1].x, sub[i].y-sub[i-1].y);
-    const rr=Math.max(sub[i].x, r0*1.04);
-    phi += hand*r0*ds/(rr*Math.sqrt(Math.max(rr*rr-r0*r0,1e-4)));
-    out.push(new THREE.Vector3((sub[i].x+offset)*Math.cos(phi), sub[i].y, (sub[i].x+offset)*Math.sin(phi)));
+  const out=[]; let phi=phi0;
+  for(let i=0;i<sub.length;i++){
+    if(i>0){
+      const ds=Math.hypot(sub[i].x-sub[i-1].x, sub[i].y-sub[i-1].y);
+      const rr=Math.max(sub[i].x, r0*1.04);
+      phi += hand*r0*ds/(rr*Math.sqrt(Math.max(rr*rr-r0*r0,1e-4)));
+    }
+    const a=sub[Math.max(0,i-1)], b=sub[Math.min(sub.length-1,i+1)];
+    let tr=b.x-a.x, tz=b.y-a.y; const tl=Math.hypot(tr,tz)||1; tr/=tl; tz/=tl;
+    let nr=tz, ny=-tr; if(nr<0){nr=-nr; ny=-ny;}        // outward in-plane normal
+    const cp=Math.cos(phi), sp=Math.sin(phi), rad=sub[i].x+TOW_OFF;
+    out.push({pos:new THREE.Vector3(rad*cp, sub[i].y, rad*sp),
+              nrm:new THREE.Vector3(nr*cp, ny, nr*sp).normalize()});
   }
-  return new THREE.CatmullRomCurve3(out);
+  return out;
 }
-const towMat=new THREE.MeshStandardMaterial({color:0x14201c,metalness:0.2,roughness:0.55});
-const hoopMat=new THREE.MeshStandardMaterial({color:0x1d2a25,metalness:0.2,roughness:0.55});
+
+// ribbon: offset +/- half-width along (tangent x normal), which lies in the surface
+function bandGeometry(samples, width){
+  const n=samples.length, hw=width/2, pos=new Float32Array(n*6);
+  for(let i=0;i<n;i++){
+    const p=samples[i].pos;
+    const prev=samples[Math.max(0,i-1)].pos, next=samples[Math.min(n-1,i+1)].pos;
+    const T=next.clone().sub(prev).normalize();
+    const side=new THREE.Vector3().crossVectors(T, samples[i].nrm).normalize().multiplyScalar(hw);
+    const eA=p.clone().add(side), eB=p.clone().sub(side);
+    pos.set([eA.x,eA.y,eA.z, eB.x,eB.y,eB.z], i*6);
+  }
+  const idx=[];
+  for(let i=0;i<n-1;i++){const a=i*2; idx.push(a,a+1,a+2, a+1,a+3,a+2);}
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+
+const towMatA=new THREE.MeshStandardMaterial({color:0x171f1b, metalness:0.25, roughness:0.5, side:THREE.DoubleSide});
+const towMatB=new THREE.MeshStandardMaterial({color:0x1e2924, metalness:0.25, roughness:0.5, side:THREE.DoubleSide});
+const hoopMat=new THREE.MeshStandardMaterial({color:0x232f29, metalness:0.25, roughness:0.5, side:THREE.DoubleSide});
 let windAngle=35;
 function clearWind(){ windGroup.children.forEach(m=>m.geometry&&m.geometry.dispose()); windGroup.clear(); }
 function buildWinding(alphaDeg){
   windAngle=alphaDeg; clearWind();
   const r0=Math.max(OPEN*1.1, R*Math.sin(alphaDeg*Math.PI/180));
-  const N=18;
-  for(let hand of [1,-1]) for(let k=0;k<N;k++){
-    const c=buildHelical(r0, 0.03, hand, k*2*Math.PI/N); if(!c) continue;
-    windGroup.add(new THREE.Mesh(new THREE.TubeGeometry(c,140,0.016,6,false), towMat));
+  for(const hand of [1,-1]){
+    const mat = hand>0 ? towMatA : towMatB;
+    for(let k=0;k<N_FAM;k++){
+      const s=helicalSamples(r0, hand, k*2*Math.PI/N_FAM); if(!s) continue;
+      windGroup.add(new THREE.Mesh(bandGeometry(s, BAND_W), mat));
+    }
   }
-  for(let i=0;i<12;i++){ const z=-HALF*0.92 + (2*HALF*0.92)*i/11;
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(R+0.055,0.02,8,80), hoopMat);
-    ring.rotation.x=Math.PI/2; ring.position.y=z; windGroup.add(ring); }
+  // hoop bands tiling the cylinder to full coverage
+  const HN=16, span=2*HALF*0.96, hb=span/HN*1.06;
+  for(let i=0;i<HN;i++){ const z=-0.5*span + span*(i+0.5)/HN;
+    const ring=new THREE.Mesh(new THREE.CylinderGeometry(R+0.05, R+0.05, hb, 90, 1, true), hoopMat);
+    ring.position.y=z; windGroup.add(ring);
+  }
   const el=document.getElementById('alpha'); if(el) el.textContent=Math.round(alphaDeg);
 }
 buildWinding(35);
