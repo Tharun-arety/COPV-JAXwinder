@@ -244,9 +244,9 @@ function bandGeometry(samples, width){
   return g;
 }
 
-const towMatA=new THREE.MeshStandardMaterial({color:0x171f1b, metalness:0.25, roughness:0.5, side:THREE.DoubleSide});
-const towMatB=new THREE.MeshStandardMaterial({color:0x1e2924, metalness:0.25, roughness:0.5, side:THREE.DoubleSide});
-const hoopMat=new THREE.MeshStandardMaterial({color:0x232f29, metalness:0.25, roughness:0.5, side:THREE.DoubleSide});
+const towMatA=new THREE.MeshStandardMaterial({color:0x2a3a33, metalness:0.25, roughness:0.5, side:THREE.DoubleSide, transparent:true, opacity:0.5});
+const towMatB=new THREE.MeshStandardMaterial({color:0x33453d, metalness:0.25, roughness:0.5, side:THREE.DoubleSide, transparent:true, opacity:0.5});
+const hoopMat=new THREE.MeshStandardMaterial({color:0x38493f, metalness:0.25, roughness:0.5, side:THREE.DoubleSide, transparent:true, opacity:0.5});
 let windAngle=35;
 function clearWind(){ windGroup.children.forEach(m=>m.geometry&&m.geometry.dispose()); windGroup.clear(); }
 function buildWinding(alphaDeg){
