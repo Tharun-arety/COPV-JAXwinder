@@ -67,11 +67,22 @@ def _geom(p: dict):
 def api_geometry(p: dict) -> dict:
     with LOCK:
         geom, derived = _geom(p)
-        bundle = build_state(geom, MATERIAL)
         CACHE["geom"] = geom
-    return {"nodes": np.asarray(bundle["nodes"], np.float64).round(3).tolist(),
-            "elems": np.asarray(bundle["elems"], np.int64).tolist(),
-            "derived": derived, "nelem": int(len(bundle["elems"])), "nnode": int(len(bundle["nodes"])),
+        if p.get("dome") == "Isotensoid":
+            import tempfile
+
+            from app.engine import isotensoid_vessel_profile
+            from app.meridian_mesh import mesh_meridian
+            prof = isotensoid_vessel_profile(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+            nodes, elems = mesh_meridian(prof, Path(tempfile.mkdtemp(prefix="iso_")),
+                                         hmin=geom.mesh_hmin, hmax=geom.mesh_hmax)
+            derived += " · isotensoid dome"
+        else:
+            bundle = build_state(geom, MATERIAL)
+            nodes, elems = bundle["nodes"], bundle["elems"]
+    nodes = np.asarray(nodes, np.float64); elems = np.asarray(elems, np.int64)
+    return {"nodes": nodes.round(3).tolist(), "elems": elems.tolist(),
+            "derived": derived, "nelem": int(len(elems)), "nnode": int(len(nodes)),
             "geom": {"outer_radius": geom.outer_radius, "mid_radius": geom.mid_radius,
                      "cyl_length": geom.cylinder_length, "thickness": geom.thickness,
                      "opening": geom.opening_radius, "dome_ratio": geom.dome_height_ratio}}
@@ -134,7 +145,10 @@ def api_solve(p: dict) -> dict:
         allow = MaterialAllowables(xt=float(p["xt"]), xc=float(p["xc"]), yt=float(p["yt"]),
                                    yc=float(p["yc"]), s=float(p["s"]))
         failure = FailureConfig(allowables=allow, margin_of_safety=1.0)
-        if p.get("mode") == "Optimize winding":
+        if p.get("dome") == "Isotensoid":
+            from app.engine import screen_isotensoid
+            r = screen_isotensoid(geom, MATERIAL, float(p["angle"]), float(p["band"]), failure_cfg=failure)
+        elif p.get("mode") == "Optimize winding":
             r = full_optimize(geom, MATERIAL, failure_cfg=failure)
         else:
             r = fast_screen(geom, MATERIAL, float(p["angle"]), float(p["band"]), failure_cfg=failure)

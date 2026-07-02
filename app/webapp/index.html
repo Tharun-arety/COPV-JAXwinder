@@ -68,7 +68,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const S = {
   step:'geometry', geom:null, result:null,
   inputs:{ define_by:'Capacity', capacity:9, radius:100, length:220, thickness:8, opening:10, dome_ratio:0.7,
-           tank_type:'Type 3 (Al liner)', xt:2200, xc:1400, yt:70, yc:220, s:120,
+           tank_type:'Type 3 (Al liner)', dome:'Ellipsoid', xt:2200, xc:1400, yt:70, yc:220, s:120,
            density:'Medium', pressure:6.85, mode:'Constant-angle screen', angle:42, band:8 },
   done:{geometry:false,materials:false,mesh:false,setup:false,solution:false,winding:false,results:false}
 };
@@ -167,6 +167,7 @@ function renderDetails(){
                                  : num('radius','Outer radius [mm]')+num('length','Cylinder length [mm]');
     h+=num('thickness','Wall / liner thickness [mm]')+num('opening','Boss opening radius [mm]')+num('dome_ratio','Dome height ratio');
     h+=sel('tank_type','Tank type',['Type 3 (Al liner)','Type 4 (PE liner)']);
+    h+=sel('dome','Dome shape',['Ellipsoid','Isotensoid']);
     h+=`<button class="go" id="btn-geom">Generate geometry</button><div class="hint" id="derived"></div>`;
   } else if(S.step==='materials'){
     h=`<h4>Details — Composite allowables [MPa]</h4><div class="hint">Load coupon-derived values to calibrate.</div>`;

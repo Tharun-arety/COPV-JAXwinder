@@ -364,7 +364,13 @@ def screen_profile(
     failure_metrics = evaluate_hashin_failure(state, res["displacement"], c_eff, res["fiber_dirs"], failure)
     fi = np.asarray(failure_metrics["failure_index"], dtype=np.float64)
     fi_max = float(np.max(fi))
-    disp = np.asarray(res["displacement"], dtype=np.float64).reshape(-1, 3)
+    nnodes = len(np.asarray(nodes))
+    winding_angle = np.full(fi.shape, float(angle_deg))
+    fields, dmag, margins = assemble_fields(failure_metrics, total, winding_angle, res["displacement"], nnodes)
+    from copv_opt.clt_fem import element_clt_fields
+    ne = len(fi)
+    fields.update(element_clt_fields(state, res["displacement"], winding_angle,
+                                     np.ones(ne, bool), np.zeros(ne, bool), material, failure.allowables))
 
     return DesignResult(
         mode="profile_screen",
@@ -378,12 +384,51 @@ def screen_profile(
         mu_max_required=None,
         mu_allowable=friction.mu_max,
         angle_deg=float(angle_deg),
-        disp_max=float(np.max(np.linalg.norm(disp, axis=1))),
+        disp_max=float(np.max(dmag)),
         gate=release_gate(fi_max, None, friction.mu_max),
+        fields=fields,
+        disp_node=dmag,
+        margins=margins,
         geom=geom,
         material=material,
         state=state,
     )
+
+
+def isotensoid_vessel_profile(mid_radius: float, cylinder_length: float, opening_radius: float,
+                              n_dome: int = 240):
+    """Full vessel meridian with netting-optimal isotensoid domes (top + cylinder + bottom).
+
+    Uses winding.isotensoid_dome for the dome shape instead of the parametric ellipsoid,
+    assembled top-boss -> top dome -> cylinder -> bottom dome -> bottom-boss."""
+    from copv_opt.winding import isotensoid_dome
+
+    from app.meridian import MeridianProfile
+    rd, zd = isotensoid_dome(mid_radius, opening_radius, n_steps=n_dome)   # r: R->r0, z: 0->H
+    half = 0.5 * float(cylinder_length)
+    top_r = rd[::-1];              top_z = half + zd[::-1]      # top boss -> top equator
+    ncyl = 30
+    cyl_z = np.linspace(half, -half, ncyl)[1:-1]
+    cyl_r = np.full(cyl_z.shape, float(mid_radius))
+    bot_r = rd;                    bot_z = -half - zd          # bottom equator -> bottom boss
+    rho = np.concatenate([top_r, cyl_r, bot_r])
+    z = np.concatenate([top_z, cyl_z, bot_z])
+    return MeridianProfile.from_points(np.column_stack([rho, z]))
+
+
+def screen_isotensoid(geom: GeometryConfig, material: MaterialConfig, angle_deg: float,
+                      band_thickness: float, work_dir: Any = None,
+                      failure_cfg: FailureConfig | None = None) -> DesignResult:
+    """Constant-angle screen on a vessel with netting-optimal isotensoid domes.
+
+    Builds the isotensoid meridian, meshes and solves it via the verified general
+    axisymmetric FEA path (screen_profile). The winding angle field / element-level CLT
+    fields flow through as for any screen."""
+    profile = isotensoid_vessel_profile(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+    r = screen_profile(profile, geom, material, angle_deg, band_thickness,
+                       work_dir=work_dir, failure_cfg=failure_cfg)
+    r.mode = "isotensoid_screen"
+    return r
 
 
 def full_optimize(
