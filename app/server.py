@@ -132,13 +132,26 @@ def api_solve(p: dict) -> dict:
         else:
             r = fast_screen(geom, MATERIAL, float(p["angle"]), float(p["band"]), failure_cfg=failure)
         winding = _winding(r, geom)
+        design = _winding_design(geom, float(p.get("band", 6.0)))
     return {"nodes": np.asarray(r.nodes, np.float64).round(3).tolist(),
             "elems": np.asarray(r.elems, np.int64).tolist(),
             "fields": {k: np.asarray(v, np.float64).round(5).tolist() for k, v in r.fields.items()},
             "margins": {k: (float(v) if isinstance(v, (int, float, np.floating)) else v) for k, v in r.margins.items()},
             "burst": float(r.burst_factor), "fi_max": float(r.fi_max),
             "mu": None if r.mu_max_required is None else float(r.mu_max_required),
-            "decision": r.gate["decision"].upper(), "mode": r.mode, "winding": winding}
+            "decision": r.gate["decision"].upper(), "mode": r.mode,
+            "winding": winding, "winding_design": design}
+
+
+def _winding_design(geom, band_width: float) -> dict | None:
+    """Classical winding-design summary (geodesic angle, coverage, pattern, dome buildup)."""
+    try:
+        from copv_opt.winding import winding_summary
+        return winding_summary(2.0 * geom.outer_radius, geom.cylinder_length, geom.opening_radius,
+                               band_width=max(band_width, 1.0), target_thickness=geom.thickness)
+    except Exception:
+        traceback.print_exc()
+        return None
 
 
 class Handler(BaseHTTPRequestHandler):

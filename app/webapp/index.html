@@ -181,6 +181,18 @@ function renderDetails(){
     h=`<h4>Details — Solution</h4><div class="hint">Runs the real FEA, winding optimizer, and element-level CLT.</div><button class="go" id="btn-solve">Solve</button>`;
   } else if(S.step==='winding'){
     h=`<h4>Details — Composite winding</h4>`;
+    const d=S.result&&S.result.winding_design;
+    if(d){
+      h+=`<div style="margin-bottom:6px">
+        <div class="metric"><span>Geodesic angle (Clairaut)</span><b>${d.helical_angle_deg.toFixed(1)}°</b></div>
+        <div class="metric"><span>Bands per layer</span><b>${d.bands_per_layer}</b></div>
+        <div class="metric"><span>Coverage pitch angle</span><b>${d.coverage_angle_deg.toFixed(1)}°</b></div>
+        <div class="metric"><span>Pattern closes (p=${d.pattern_number})</span><b>${d.pattern_closes?'yes':'no'}</b></div>
+        <div class="metric"><span>Dome thickness buildup</span><b>${d.dome_thickness_ratio_at_half_radius.toFixed(2)}×</b></div>
+        <div class="metric"><span>Layers for wall</span><b>${d.layers_for_target||'—'}</b></div>
+        <div class="metric"><span>Tow length / circuit</span><b>${d.tow_length_per_circuit_mm.toFixed(0)} mm</b></div>
+      </div>`;
+    }
     const w=S.result&&S.result.winding;
     if(w&&w.available){
       h+=`<div style="margin-top:4px">
