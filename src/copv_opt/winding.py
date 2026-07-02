@@ -91,6 +91,43 @@ def winding_pattern(diameter: float, angle_deg: float, band_width: float,
     return PatternResult(n_bands=n, pattern_number=p, circuits_per_layer=n, closes=closes)
 
 
+@dataclass
+class PatternDesign:
+    n_bands: int              # bands for 100% single-layer coverage
+    circuits: int             # circuits to reach the requested coverage
+    coverage_achieved: float  # actual coverage fraction (>=1 = full)
+    pattern_number: int       # evenly-spreading advance, coprime with n_bands
+    closes: bool
+
+
+def _even_pattern_number(n: int) -> int:
+    """A pattern advance coprime with n, near golden-ratio spacing for even coverage."""
+    if n <= 2:
+        return 1
+    target = max(1, round(n * 0.381966))
+    for d in range(0, n):
+        for p in (target + d, target - d):
+            if 1 <= p < n and math.gcd(p, n) == 1:
+                return p
+    return 1
+
+
+def pattern_for_coverage(diameter: float, angle_deg: float, band_width: float,
+                         target_coverage: float = 1.0) -> PatternDesign:
+    """Find the winding pattern that achieves a requested tape coverage.
+
+    Mirrors TaniqWind Pro's 'coverage path': enter a desired coverage (e.g. 2.0 = 200%)
+    and get the circuit count + an evenly-spreading, gap-free p/n pattern. Coverage
+    fraction achieved = circuits / n_bands."""
+    cov = helical_coverage(diameter, angle_deg, band_width)
+    n = cov.n_bands
+    circuits = max(1, math.ceil(n * max(target_coverage, 1e-6)))
+    achieved = circuits / n
+    p = _even_pattern_number(n)
+    return PatternDesign(n_bands=n, circuits=circuits, coverage_achieved=achieved,
+                         pattern_number=p, closes=math.gcd(p, n) == 1)
+
+
 # ---------------------------------------------------------------------------
 # Dome thickness buildup (band continuity)
 # ---------------------------------------------------------------------------
