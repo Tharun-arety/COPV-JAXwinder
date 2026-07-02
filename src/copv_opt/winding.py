@@ -25,6 +25,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import numpy as np
+
 
 # ---------------------------------------------------------------------------
 # Geodesic paths (Clairaut)
@@ -149,6 +151,87 @@ def dome_thickness_ratio(radius: float, cylinder_radius: float, polar_radius: fl
 # ---------------------------------------------------------------------------
 # Layup / process helpers
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Isotensoid dome contour (netting + membrane equilibrium, geodesic winding)
+# ---------------------------------------------------------------------------
+def isotensoid_dome(equator_radius: float, opening_radius: float, n_steps: int = 800,
+                    alpha_cap_deg: float = 85.0) -> tuple[np.ndarray, np.ndarray]:
+    """Geodesic-isotensoid dome meridian (r, z) from the equator to the polar opening.
+
+    The dome shape where, under netting (fibres carry all load) with geodesic winding
+    (sin alpha = r_open/r), every fibre is at equal tension. Derived from membrane
+    equilibrium: with N_theta/N_phi = tan^2(alpha) and N_phi = p r/(2 sin phi), Laplace
+    gives the meridional curvature 1/R1 = 2 cos(psi)(1 - tan^2(alpha)/2)/r, integrated in
+    arc length s with the tangent angle psi (0 at the equator = vertical tangent):
+
+        dr/ds = -sin(psi),  dz/ds = cos(psi),  dpsi/ds = 2 cos(psi)(1 - tan^2(alpha)/2)/r
+
+    The angle is capped at ``alpha_cap_deg`` to keep the near-boss integration stable.
+    Note the inflection at alpha = 54.74 deg (dpsi/ds = 0) — the isotensoid signature."""
+    R, r0 = float(equator_radius), float(opening_radius)
+    sa2_cap = math.sin(math.radians(alpha_cap_deg)) ** 2
+    ds = 2.0 * R / n_steps
+
+    def deriv(r, psi):
+        sa2 = min((r0 / r) ** 2, sa2_cap) if r > 0 else sa2_cap
+        tan2 = sa2 / max(1.0 - sa2, 1e-9)
+        return -math.sin(psi), math.cos(psi), 2.0 * math.cos(psi) * (1.0 - tan2 / 2.0) / max(r, 1e-6)
+
+    r, z, psi = R, 0.0, 0.0
+    rs, zs = [r], [z]
+    for _ in range(n_steps * 4):
+        if r <= r0:
+            break
+        k1 = deriv(r, psi)
+        k2 = deriv(r + 0.5 * ds * k1[0], psi + 0.5 * ds * k1[2])
+        k3 = deriv(r + 0.5 * ds * k2[0], psi + 0.5 * ds * k2[2])
+        k4 = deriv(r + ds * k3[0], psi + ds * k3[2])
+        r += ds * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]) / 6.0
+        z += ds * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]) / 6.0
+        psi += ds * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2]) / 6.0
+        rs.append(max(r, r0))
+        zs.append(z)
+    return np.asarray(rs), np.asarray(zs)
+
+
+# ---------------------------------------------------------------------------
+# Non-geodesic path solver (slippage-limited steering)
+# ---------------------------------------------------------------------------
+def slippage_coefficient(radius: float, drds: float, angle_deg: float, dalpha_ds: float,
+                         k_meridian: float, k_parallel: float) -> float:
+    """Slippage coefficient lambda = k_g/k_n for a tow at ``angle_deg`` (from the meridian).
+
+    k_g is the Clairaut-deviation geodesic curvature (1/(r cos a))·d(r sin a)/ds — zero
+    for a geodesic; k_n = k_meridian cos^2 a + k_parallel sin^2 a (Euler). Manufacturable
+    when |lambda| <= friction/tack coefficient."""
+    a = math.radians(angle_deg)
+    dC_ds = math.sin(a) * drds + radius * math.cos(a) * dalpha_ds  # d(r sin a)/ds
+    k_g = dC_ds / (radius * math.cos(a)) if abs(math.cos(a)) > 1e-6 else float("inf")
+    k_n = k_meridian * math.cos(a) ** 2 + k_parallel * math.sin(a) ** 2
+    return k_g / k_n if abs(k_n) > 1e-12 else float("inf")
+
+
+def nongeodesic_angle_profile(radii, s_coords, k_meridian, k_parallel,
+                              alpha0_deg: float, slippage: float) -> list[float]:
+    """Integrate the winding-angle profile for a non-geodesic path at constant slippage.
+
+    Integrates the Clairaut quantity C = r·sin(a):  dC/ds = lambda·r cos a·(k_m cos^2 a +
+    k_p sin^2 a), then recovers a = asin(C/r). slippage = 0 keeps C constant exactly —
+    the geodesic (Clairaut) limit. Returns alpha [deg]."""
+    r = np.asarray(radii, float); s = np.asarray(s_coords, float)
+    km = np.asarray(k_meridian, float); kp = np.asarray(k_parallel, float)
+    C = r[0] * math.sin(math.radians(alpha0_deg))
+    out = [alpha0_deg]
+    for i in range(1, len(s)):
+        ds = s[i] - s[i - 1]
+        rr = max(r[i - 1], 1e-9)
+        sa = min(max(C / rr, -1.0), 1.0)
+        ca = math.sqrt(max(1.0 - sa * sa, 0.0))
+        C += slippage * rr * ca * (km[i - 1] * ca * ca + kp[i - 1] * sa * sa) * ds
+        out.append(math.degrees(math.asin(min(max(C / max(r[i], 1e-9), -1.0), 1.0))))
+    return out
+
+
 def layers_for_thickness(target_thickness: float, ply_thickness: float = 0.3) -> int:
     """Number of covered layers to reach a target structural thickness."""
     return max(1, math.ceil(target_thickness / max(ply_thickness, 1e-6)))
