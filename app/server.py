@@ -107,9 +107,16 @@ def _winding(r, geom) -> dict:
                                              dome_height_ratio=geom.dome_height_ratio)
             pt = np.asarray(surf["points"])[0]
             hoops.append({"z": float(pt[2]), "radius": float(np.hypot(pt[0], pt[1]))})
+        machine = None
+        if helical:
+            try:
+                from copv_opt.machine import machine_program_from_path, program_summary
+                machine = program_summary(machine_program_from_path(np.asarray(helical[0]["points"], dtype=np.float64)))
+            except Exception:
+                machine = None
         m = plan["metrics"]
         wa = np.asarray(r.fields.get("Winding angle [deg]", []), dtype=np.float64)
-        return {"available": True, "helical": helical, "hoops": hoops,
+        return {"available": True, "helical": helical, "hoops": hoops, "machine": machine,
                 "n_pairs": int(m["total_course_pairs"]), "n_courses": int(m["total_individual_courses"]),
                 "n_hoops": int(m["total_hoop_rings"]), "cut_restart": int(m["total_cut_restart_events"]),
                 "angle_mean": float(np.mean(wa)) if wa.size else None,
@@ -146,9 +153,13 @@ def api_solve(p: dict) -> dict:
 def _winding_design(geom, band_width: float) -> dict | None:
     """Classical winding-design summary (geodesic angle, coverage, pattern, dome buildup)."""
     try:
-        from copv_opt.winding import winding_summary
-        return winding_summary(2.0 * geom.outer_radius, geom.cylinder_length, geom.opening_radius,
-                               band_width=max(band_width, 1.0), target_thickness=geom.thickness)
+        from copv_opt.winding import pattern_for_coverage, winding_summary
+        d = winding_summary(2.0 * geom.outer_radius, geom.cylinder_length, geom.opening_radius,
+                            band_width=max(band_width, 1.0), target_thickness=geom.thickness)
+        cov = pattern_for_coverage(2.0 * geom.outer_radius, d["helical_angle_deg"], max(band_width, 1.0), 1.0)
+        d.update(coverage_100_circuits=cov.circuits, coverage_pattern_number=cov.pattern_number,
+                 coverage_closes=cov.closes)
+        return d
     except Exception:
         traceback.print_exc()
         return None

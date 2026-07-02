@@ -188,6 +188,7 @@ function renderDetails(){
         <div class="metric"><span>Bands per layer</span><b>${d.bands_per_layer}</b></div>
         <div class="metric"><span>Coverage pitch angle</span><b>${d.coverage_angle_deg.toFixed(1)}°</b></div>
         <div class="metric"><span>Pattern closes (p=${d.pattern_number})</span><b>${d.pattern_closes?'yes':'no'}</b></div>
+        <div class="metric"><span>Circuits for 100% coverage</span><b>${d.coverage_100_circuits||'—'}</b></div>
         <div class="metric"><span>Dome thickness buildup</span><b>${d.dome_thickness_ratio_at_half_radius.toFixed(2)}×</b></div>
         <div class="metric"><span>Layers for wall</span><b>${d.layers_for_target||'—'}</b></div>
         <div class="metric"><span>Tow length / circuit</span><b>${d.tow_length_per_circuit_mm.toFixed(0)} mm</b></div>
@@ -202,6 +203,12 @@ function renderDetails(){
         <div class="metric"><span>Cut / restart events</span><b>${w.cut_restart}</b></div>
         <div class="metric"><span>Optimized angle</span><b>${w.angle_mean?w.angle_mean.toFixed(0):'—'}° (${w.angle_min?w.angle_min.toFixed(0):'—'}–${w.angle_max?w.angle_max.toFixed(0):'—'}°)</b></div>
       </div>
+      ${w.machine?`<h4 style="margin-top:10px">Machine program (CNC, course 1)</h4><div>
+        <div class="metric"><span>Axes</span><b>${w.machine.axes}</b></div>
+        <div class="metric"><span>Mandrel revolutions</span><b>${w.machine.mandrel_revolutions.toFixed(2)}</b></div>
+        <div class="metric"><span>Carriage stroke</span><b>${w.machine.carriage_stroke_mm.toFixed(0)} mm</b></div>
+        <div class="metric"><span>Delivery-eye yaw</span><b>${w.machine.eye_yaw_min_deg.toFixed(0)}–${w.machine.eye_yaw_max_deg.toFixed(0)}°</b></div>
+      </div>`:''}
       <div class="hint" style="margin-top:8px"><span style="color:#1d9e75">━</span> clockwise &nbsp; <span style="color:#c065d0">━</span> counter-clockwise &nbsp; <span style="color:#d7a53a">◯</span> hoop</div>
       <div class="hint">Discrete course plan from the optimized winding — the planner's axisymmetric helical families + hoop rings (real counts), not a full circumferential weave.</div>`;
     } else h+=`<div class="hint">${w&&w.reason?w.reason:'Run the Solution step with mode = Optimize winding to generate the course plan.'}</div>`;
