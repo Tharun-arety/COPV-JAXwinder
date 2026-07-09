@@ -14,6 +14,7 @@ main thread.
 from __future__ import annotations
 
 import json
+import math
 import os
 import signal as _sig
 import sys
@@ -88,6 +89,20 @@ def api_geometry(p: dict) -> dict:
                      "opening": geom.opening_radius, "dome_ratio": geom.dome_height_ratio}}
 
 
+def _course_orientation(points: np.ndarray) -> np.ndarray:
+    """Local winding angle [deg from axis] at every point of a course path.
+
+    Orientation = angle between the path tangent and the meridian, computed from the
+    hoop component of the tangent — the per-point tow orientation deliverable."""
+    pts = np.asarray(points, dtype=np.float64)
+    d = np.gradient(pts, axis=0)
+    phi = np.arctan2(pts[:, 1], pts[:, 0])
+    hoop = np.stack([-np.sin(phi), np.cos(phi), np.zeros_like(phi)], axis=1)
+    t_hoop = np.abs(np.einsum("ij,ij->i", d, hoop))
+    t_norm = np.linalg.norm(d, axis=1) + 1e-12
+    return np.degrees(np.arcsin(np.clip(t_hoop / t_norm, 0.0, 1.0)))
+
+
 def _winding(r, geom) -> dict:
     """Actual discrete winding course plan (real helical courses + hoop rings) from the
     optimizer layout. Only available after Optimize winding."""
@@ -127,7 +142,27 @@ def _winding(r, geom) -> dict:
                 machine = None
         m = plan["metrics"]
         wa = np.asarray(r.fields.get("Winding angle [deg]", []), dtype=np.float64)
+        # optimized tow schedule: decimated positions + per-point orientations per course
+        sched_courses = []
+        for i, c in enumerate(helical[:150]):
+            pts = np.asarray(c["points"], dtype=np.float64)
+            step = max(1, len(pts) // 40)
+            ang = _course_orientation(pts)[::step]
+            sched_courses.append({"id": i, "hand": c["hand"],
+                                  "points": pts[::step].round(2).tolist(),
+                                  "angle_deg": np.round(ang, 2).tolist()})
+        schedule = {
+            "layers": [
+                {"type": "helical", "angle_deg_mean": float(np.mean(wa)) if wa.size else None,
+                 "course_pairs": int(m["total_course_pairs"])},
+                {"type": "hoop", "rings": int(m["total_hoop_rings"])},
+            ],
+            "geometry": {"outer_radius_mm": geom.outer_radius, "cylinder_length_mm": geom.cylinder_length,
+                         "opening_radius_mm": geom.opening_radius, "pressure_mpa": geom.pressure},
+            "courses": sched_courses,
+        }
         return {"available": True, "helical": helical, "hoops": hoops, "machine": machine,
+                "schedule": schedule,
                 "n_pairs": int(m["total_course_pairs"]), "n_courses": int(m["total_individual_courses"]),
                 "n_hoops": int(m["total_hoop_rings"]), "cut_restart": int(m["total_cut_restart_events"]),
                 "angle_mean": float(np.mean(wa)) if wa.size else None,
@@ -179,6 +214,35 @@ def _winding_design(geom, band_width: float) -> dict | None:
         return None
 
 
+def api_layer_metrics(p: dict) -> dict:
+    """Per-layer design metrics for a user-defined layer stack (the Layer Design panel).
+
+    For each layer: coverage bands, p/n pattern closure, circuits for 100% coverage, and
+    geodesic feasibility (a helical angle below asin(r_open/R) would turn around inside
+    the boss opening — infeasible without pins)."""
+    from copv_opt.winding import geodesic_angle_deg, helical_coverage, pattern_for_coverage
+    geom, _ = _geom(p)
+    D = 2.0 * geom.mid_radius
+    a_min = geodesic_angle_deg(geom.mid_radius, geom.opening_radius)
+    out = []
+    for L in p.get("layers", []):
+        band = max(float(L.get("band", 6.0)), 0.5)
+        if L.get("type") == "hoop":
+            n = max(1, math.ceil(geom.cylinder_length / band))
+            out.append({"type": "hoop", "angle_deg": 90.0, "bands": n, "feasible": True,
+                        "note": f"{n} circuits tile the cylinder"})
+        else:
+            a = float(L.get("angle", a_min))
+            cov = helical_coverage(D, a, band)
+            pat = pattern_for_coverage(D, a, band, 1.0)
+            feasible = a >= a_min - 1e-6
+            out.append({"type": "helical", "angle_deg": a, "bands": cov.n_bands,
+                        "pattern": pat.pattern_number, "closes": bool(pat.closes),
+                        "circuits": pat.circuits, "feasible": bool(feasible),
+                        "note": "ok" if feasible else f"below geodesic minimum {a_min:.1f} deg — turnaround inside boss"})
+    return {"min_geodesic_angle_deg": a_min, "layers": out}
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # quiet
         pass
@@ -212,6 +276,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(api_geometry(body))
             elif self.path == "/api/solve":
                 self._json(api_solve(body))
+            elif self.path == "/api/layer_metrics":
+                self._json(api_layer_metrics(body))
             else:
                 self._json({"error": "unknown endpoint"}, 404)
         except Exception as exc:

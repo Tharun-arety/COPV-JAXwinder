@@ -5,7 +5,17 @@
  :root{--bar:#23272e;--panel:#262b33;--line:#3a414b;--ink:#dfe4ea;--muted:#9aa4b1;--accent:#1d9e75;--sel:#34506b}
  *{box-sizing:border-box}
  html,body{margin:0;height:100%;font-family:"Segoe UI",system-ui,sans-serif;color:var(--ink);background:#1b1f25;font-size:13px;overflow:hidden}
- #app{display:grid;grid-template-rows:44px 1fr 26px;height:100vh}
+ #app{display:grid;grid-template-rows:44px 38px 1fr 26px;height:100vh}
+ #tabs{background:#20252c;border-bottom:1px solid var(--line);display:flex;align-items:stretch;padding:0 10px;overflow-x:auto}
+ .tab{display:flex;align-items:center;gap:7px;padding:0 13px;font-size:12.5px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+ .tab:hover{color:var(--ink)}
+ .tab.on{color:#fff;border-bottom-color:var(--accent);background:#262b33}
+ .tab .ic{width:11px;height:11px;border-radius:50%;border:1.5px solid var(--muted);display:inline-block}
+ .tab.done .ic{background:var(--accent);border-color:var(--accent)}
+ .tab .arr{color:#4a525d;margin-left:9px;font-size:10px}
+ .ltable{width:100%;font-size:12px;border-collapse:collapse}
+ .ltable td{padding:3px 4px;border-bottom:1px solid #313842}
+ .ltable input{width:54px;padding:4px 5px}
  .bar{background:var(--bar);display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line)}
  .bar b{color:#fff;font-weight:600}.bar .tag{color:var(--muted);font-size:12px}
  .bar .sp{flex:1}
@@ -41,10 +51,9 @@
 </style></head><body>
 <div id="app">
  <div class="bar"><span style="color:var(--accent);font-size:16px">◆</span><b>COPV Studio Pro</b><span class="tag">workflow · real FEA</span><span class="sp"></span><span class="tag" id="gatechip"></span></div>
+ <div id="tabs"></div>
  <div class="main">
   <div class="side">
-   <div class="grp">Outline</div>
-   <div id="steps"></div>
    <div class="details" id="details"></div>
   </div>
   <div class="view">
@@ -69,10 +78,11 @@ const S = {
   step:'geometry', geom:null, result:null,
   inputs:{ define_by:'Capacity', capacity:9, radius:100, length:220, thickness:8, opening:10, dome_ratio:0.7,
            tank_type:'Type 3 (Al liner)', dome:'Ellipsoid', xt:2200, xc:1400, yt:70, yc:220, s:120,
-           density:'Medium', pressure:6.85, mode:'Constant-angle screen', angle:42, band:8 },
-  done:{geometry:false,materials:false,mesh:false,setup:false,solution:false,winding:false,results:false}
+           density:'Medium', pressure:6.85, mode:'Constant-angle screen', angle:42, band:8,
+           layers:[{type:'helical',angle:12,band:6},{type:'helical',angle:45,band:6},{type:'hoop',band:6}] },
+  done:{geometry:false,materials:false,layers:false,mesh:false,setup:false,solution:false,winding:false,results:false}
 };
-const STEPS=[['geometry','Geometry'],['materials','Materials'],['mesh','Mesh'],['setup','Analysis settings'],['solution','Solution'],['winding','Winding'],['results','Results']];
+const STEPS=[['geometry','Mandrel'],['materials','Materials'],['layers','Layers'],['mesh','Mesh'],['setup','Analysis'],['solution','Solve · Optimize'],['winding','Winding'],['results','Results']];
 
 // ---------- three.js ----------
 const view=document.querySelector('.view');
@@ -150,10 +160,11 @@ function onStep(){
 
 // ---------- UI ----------
 function renderSteps(){
-  const c=document.getElementById('steps'); c.innerHTML='';
-  for(const [k,label] of STEPS){ const d=document.createElement('div');
-    d.className='step'+(S.step===k?' on':'')+(S.done[k]?' done':'');
-    d.innerHTML=`<span class="ic"></span>${label}`; d.onclick=()=>{S.step=k; renderSteps(); renderDetails(); onStep();}; c.appendChild(d); }
+  const c=document.getElementById('tabs'); c.innerHTML='';
+  STEPS.forEach(([k,label],idx)=>{ const d=document.createElement('div');
+    d.className='tab'+(S.step===k?' on':'')+(S.done[k]?' done':'');
+    d.innerHTML=`<span class="ic"></span>${label}`+(idx<STEPS.length-1?'<span class="arr">▸</span>':'');
+    d.onclick=()=>{S.step=k; renderSteps(); renderDetails(); onStep();}; c.appendChild(d); });
 }
 function num(key,label){ return `<label>${label}</label><input type="number" data-k="${key}" value="${S.inputs[key]}">`; }
 function sel(key,label,opts){ return `<label>${label}</label><select data-k="${key}">${opts.map(o=>`<option${o===S.inputs[key]?' selected':''}>${o}</option>`).join('')}</select>`; }
@@ -172,6 +183,18 @@ function renderDetails(){
   } else if(S.step==='materials'){
     h=`<h4>Details — Composite allowables [MPa]</h4><div class="hint">Load coupon-derived values to calibrate.</div>`;
     h+=num('xt','XT — fibre tension')+num('xc','XC — fibre compression')+num('yt','YT — matrix tension')+num('yc','YC — matrix compression')+num('s','S — shear');
+  } else if(S.step==='layers'){
+    h=`<h4>Details — Layer design</h4>`;
+    h+=`<table class="ltable"><tr style="color:var(--muted)"><td>#</td><td>type</td><td>angle°</td><td>band mm</td><td></td></tr>`;
+    S.inputs.layers.forEach((L,i)=>{
+      h+=`<tr><td>${i+1}</td><td>${L.type}</td>`+
+         `<td>${L.type==='hoop'?'90':`<input data-li="${i}" data-lf="angle" type="number" value="${L.angle}">`}</td>`+
+         `<td><input data-li="${i}" data-lf="band" type="number" value="${L.band}"></td>`+
+         `<td><span data-del="${i}" style="cursor:pointer;color:#e88a8a">✕</span></td></tr>`;
+    });
+    h+=`</table><div style="display:flex;gap:6px"><button class="go" id="btn-addhel" style="background:#33507a">+ Helical</button><button class="go" id="btn-addhoop" style="background:#3a5a4e">+ Hoop</button></div>`;
+    h+=`<button class="go" id="btn-layers">Compute layer metrics</button><div id="layerout"></div>`;
+    h+=`<div class="hint">Coverage bands, p/n pattern closure, and geodesic feasibility per layer. Solve · Optimize finds the optimal stack automatically.</div>`;
   } else if(S.step==='mesh'){
     h=`<h4>Details — Mesh</h4>${sel('density','Element size',['Coarse','Medium','Fine'])}<button class="go" id="btn-mesh">Generate mesh</button><div class="hint" id="meshinfo"></div>`;
   } else if(S.step==='setup'){
@@ -210,6 +233,12 @@ function renderDetails(){
         <div class="metric"><span>Carriage stroke</span><b>${w.machine.carriage_stroke_mm.toFixed(0)} mm</b></div>
         <div class="metric"><span>Delivery-eye yaw</span><b>${w.machine.eye_yaw_min_deg.toFixed(0)}–${w.machine.eye_yaw_max_deg.toFixed(0)}°</b></div>
       </div>`:''}
+      ${w.schedule?`<h4 style="margin-top:10px">Optimized tow schedule</h4><div>
+        <div class="metric"><span>Courses exported</span><b>${w.schedule.courses.length}</b></div>
+        <div class="metric"><span>Per course</span><b>positions + orientations</b></div>
+      </div>
+      <div style="display:flex;gap:6px"><button class="go" id="btn-dljson">Download JSON</button><button class="go" id="btn-dlcsv" style="background:#3a5a4e">Download CSV</button></div>
+      <div class="hint">Tow centreline positions [mm] and local winding angle [°] per point, plus layer parameters — the machine-ready design point.</div>`:''}
       <div class="hint" style="margin-top:8px"><span style="color:#1d9e75">━</span> clockwise &nbsp; <span style="color:#c065d0">━</span> counter-clockwise &nbsp; <span style="color:#d7a53a">◯</span> hoop</div>
       <div class="hint">Discrete course plan from the optimized winding — the planner's axisymmetric helical families + hoop rings (real counts), not a full circumferential weave.</div>`;
     } else h+=`<div class="hint">${w&&w.reason?w.reason:'Run the Solution step with mode = Optimize winding to generate the course plan.'}</div>`;
@@ -233,6 +262,15 @@ function renderDetails(){
   const bm=document.getElementById('btn-mesh'); if(bm) bm.onclick=genMesh;
   const bs=document.getElementById('btn-solve'); if(bs) bs.onclick=solve;
   const fs=document.getElementById('fieldsel'); if(fs) fs.onchange=()=>recolor(fs.value);
+  document.querySelectorAll('#details [data-li]').forEach(el=>{ el.onchange=()=>{ S.inputs.layers[+el.dataset.li][el.dataset.lf]=parseFloat(el.value); }; });
+  document.querySelectorAll('#details [data-del]').forEach(el=>{ el.onclick=()=>{ S.inputs.layers.splice(+el.dataset.del,1); renderDetails(); }; });
+  const ah=document.getElementById('btn-addhel'); if(ah) ah.onclick=()=>{ S.inputs.layers.push({type:'helical',angle:30,band:6}); renderDetails(); };
+  const ao=document.getElementById('btn-addhoop'); if(ao) ao.onclick=()=>{ S.inputs.layers.push({type:'hoop',band:6}); renderDetails(); };
+  const bl=document.getElementById('btn-layers'); if(bl) bl.onclick=computeLayers;
+  const dj=document.getElementById('btn-dljson'); if(dj) dj.onclick=()=>dl('tow_schedule.json',JSON.stringify(S.result.winding.schedule,null,1),'application/json');
+  const dc=document.getElementById('btn-dlcsv'); if(dc) dc.onclick=()=>{ const rows=['course,hand,point,x_mm,y_mm,z_mm,winding_angle_deg'];
+    S.result.winding.schedule.courses.forEach(c=>c.points.forEach((p,k)=>rows.push(`${c.id},${c.hand},${k},${p[0]},${p[1]},${p[2]},${c.angle_deg[k]}`)));
+    dl('tow_positions_orientations.csv',rows.join('\n'),'text/csv'); };
   if(S.step==='geometry' && S.geom) document.getElementById('derived').textContent=S.geom.derived;
   if(S.step==='mesh' && S.geom) document.getElementById('meshinfo').textContent=`${S.geom.nelem} elements · ${S.geom.nnode} nodes`;
 }
@@ -242,6 +280,21 @@ function spin(on,msg){document.getElementById('spin').classList.toggle('hide',!o
 function setStatus(m){document.getElementById('statusmsg').textContent=m;}
 async function post(url,body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json(); if(j.error) throw new Error(j.error); return j; }
+function dl(name,text,mime){ const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:mime})); a.download=name; a.click(); }
+
+async function computeLayers(){ setStatus('Computing layer metrics…');
+  try{ const j=await post('/api/layer_metrics',{...S.inputs});
+    S.done.layers=true; renderSteps();
+    let t=`<div class="hint">Geodesic minimum angle (boss limit): <b>${j.min_geodesic_angle_deg.toFixed(1)}°</b></div>`;
+    j.layers.forEach((L,i)=>{ t+=`<div class="metric"><span>L${i+1} ${L.type} ${L.angle_deg.toFixed(0)}°</span><b>${
+      L.type==='hoop' ? L.bands+' circuits' :
+      L.bands+' bands · p='+L.pattern+(L.closes?' ✓':' ✗')+(L.feasible?'':' · <span style="color:#e88a8a">INFEASIBLE</span>')}</b></div>`; });
+    document.getElementById('layerout').innerHTML=t;
+    const firstHel=S.inputs.layers.find(L=>L.type==='helical');
+    if(firstHel){ S.inputs.angle=firstHel.angle; S.inputs.band=firstHel.band; }
+    setStatus('Layer metrics computed. First helical layer seeds the analysis angle.');
+  }catch(e){ setStatus('Error: '+e.message); } }
 
 async function genGeometry(){ spin(true,'Building geometry (OpenCASCADE + gmsh)…'); setStatus('Building geometry…');
   try{ const j=await post('/api/geometry',{...S.inputs}); S.geom=j; S.done.geometry=true;
