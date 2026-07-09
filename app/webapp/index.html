@@ -267,10 +267,10 @@ function renderDetails(){
   const ah=document.getElementById('btn-addhel'); if(ah) ah.onclick=()=>{ S.inputs.layers.push({type:'helical',angle:30,band:6}); renderDetails(); };
   const ao=document.getElementById('btn-addhoop'); if(ao) ao.onclick=()=>{ S.inputs.layers.push({type:'hoop',band:6}); renderDetails(); };
   const bl=document.getElementById('btn-layers'); if(bl) bl.onclick=computeLayers;
-  const dj=document.getElementById('btn-dljson'); if(dj) dj.onclick=()=>dl('tow_schedule.json',JSON.stringify(S.result.winding.schedule,null,1),'application/json');
+  const dj=document.getElementById('btn-dljson'); if(dj) dj.onclick=()=>dlfile('tow_schedule.json',JSON.stringify(S.result.winding.schedule,null,1),'application/json');
   const dc=document.getElementById('btn-dlcsv'); if(dc) dc.onclick=()=>{ const rows=['course,hand,point,x_mm,y_mm,z_mm,winding_angle_deg'];
     S.result.winding.schedule.courses.forEach(c=>c.points.forEach((p,k)=>rows.push(`${c.id},${c.hand},${k},${p[0]},${p[1]},${p[2]},${c.angle_deg[k]}`)));
-    dl('tow_positions_orientations.csv',rows.join('\n'),'text/csv'); };
+    dlfile('tow_positions_orientations.csv',rows.join('\n'),'text/csv'); };
   if(S.step==='geometry' && S.geom) document.getElementById('derived').textContent=S.geom.derived;
   if(S.step==='mesh' && S.geom) document.getElementById('meshinfo').textContent=`${S.geom.nelem} elements · ${S.geom.nnode} nodes`;
 }
@@ -280,7 +280,7 @@ function spin(on,msg){document.getElementById('spin').classList.toggle('hide',!o
 function setStatus(m){document.getElementById('statusmsg').textContent=m;}
 async function post(url,body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json(); if(j.error) throw new Error(j.error); return j; }
-function dl(name,text,mime){ const a=document.createElement('a');
+function dlfile(name,text,mime){ const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([text],{type:mime})); a.download=name; a.click(); }
 
 async function computeLayers(){ setStatus('Computing layer metrics…');
