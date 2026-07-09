@@ -278,7 +278,8 @@ function renderDetails(){
 // ---------- API ----------
 function spin(on,msg){document.getElementById('spin').classList.toggle('hide',!on); if(msg)document.getElementById('spinmsg').textContent=msg;}
 function setStatus(m){document.getElementById('statusmsg').textContent=m;}
-async function post(url,body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+const API = /^https?:$/.test(location.protocol) ? '' : 'http://localhost:8081';
+async function post(url,body){ const r=await fetch(API+url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json(); if(j.error) throw new Error(j.error); return j; }
 function dlfile(name,text,mime){ const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([text],{type:mime})); a.download=name; a.click(); }
