@@ -84,9 +84,54 @@ def api_geometry(p: dict) -> dict:
     nodes = np.asarray(nodes, np.float64); elems = np.asarray(elems, np.int64)
     return {"nodes": nodes.round(3).tolist(), "elems": elems.tolist(),
             "derived": derived, "nelem": int(len(elems)), "nnode": int(len(nodes)),
+            "profile": _meridian_profile(geom, p),
             "geom": {"outer_radius": geom.outer_radius, "mid_radius": geom.mid_radius,
                      "cyl_length": geom.cylinder_length, "thickness": geom.thickness,
                      "opening": geom.opening_radius, "dome_ratio": geom.dome_height_ratio}}
+
+
+def _meridian_profile(geom, p: dict, n: int = 220) -> dict:
+    """Meridian polyline (s, r, z) of the actual vessel surface, top boss -> bottom
+    boss — the frontend lays coverage bands on this."""
+    try:
+        if p.get("dome") == "Isotensoid":
+            from app.engine import isotensoid_vessel_profile
+            prof = isotensoid_vessel_profile(geom.mid_radius, geom.cylinder_length, geom.opening_radius)
+            rr, zz = prof.sample(n)
+            s = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(rr), np.diff(zz)))])
+        else:
+            from copv_opt.geometry import copv_meridional_metrics, copv_surface_from_sphi_np
+            _, _, total = copv_meridional_metrics(geom.mid_radius, geom.cylinder_length,
+                                                  geom.opening_radius, geom.dome_height_ratio)
+            s = np.linspace(0.0, total, n)
+            surf = copv_surface_from_sphi_np(geom.mid_radius, s, np.zeros_like(s), geom.cylinder_length,
+                                             geom.opening_radius, dome_height_ratio=geom.dome_height_ratio)
+            pts = np.asarray(surf["points"])
+            rr, zz = np.hypot(pts[:, 0], pts[:, 1]), pts[:, 2]
+        return {"s": np.asarray(s).round(2).tolist(), "r": np.asarray(rr).round(3).tolist(),
+                "z": np.asarray(zz).round(3).tolist()}
+    except Exception:
+        traceback.print_exc()
+        return None
+
+
+def api_patterns(p: dict) -> dict:
+    """Taniq-style pattern search: candidate p/n winding patterns for the current
+    layer (bands, circuits, achieved coverage, closure), best-spreading first."""
+    from copv_opt.winding import geodesic_angle_deg, helical_coverage
+    geom, _ = _geom(p)
+    D = 2.0 * geom.mid_radius
+    band = max(float(p.get("band", 6.0)), 0.5)
+    a = float(p.get("angle") or geodesic_angle_deg(geom.mid_radius, geom.opening_radius))
+    n = helical_coverage(D, a, band).n_bands
+    target = max(float(p.get("coverage", 1.0)), 0.1)
+    circuits = max(1, math.ceil(n * target))
+    golden = n * 0.381966
+    pats = [{"p": q, "n": n, "circuits": circuits,
+             "coverage_pct": round(100.0 * circuits / n, 1), "angle_deg": round(a, 2)}
+            for q in range(1, max(n, 2)) if math.gcd(q, n) == 1]
+    pats.sort(key=lambda x: abs(x["p"] - golden))
+    return {"n_bands": n, "angle_deg": a, "patterns": pats[:8]}
 
 
 def _course_orientation(points: np.ndarray) -> np.ndarray:
@@ -286,6 +331,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(api_solve(body))
             elif self.path == "/api/layer_metrics":
                 self._json(api_layer_metrics(body))
+            elif self.path == "/api/patterns":
+                self._json(api_patterns(body))
             else:
                 self._json({"error": "unknown endpoint"}, 404)
         except Exception as exc:

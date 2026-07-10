@@ -75,7 +75,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // ---------- state ----------
 const S = {
-  step:'geometry', geom:null, result:null,
+  step:'geometry', geom:null, result:null, windView:'coverage', patterns:null, selPattern:null,
   inputs:{ define_by:'Capacity', capacity:9, radius:100, length:220, thickness:8, opening:10, dome_ratio:0.7,
            tank_type:'Type 3 (Al liner)', dome:'Ellipsoid', xt:2200, xc:1400, yt:70, yc:220, s:120,
            density:'Medium', pressure:6.85, mode:'Constant-angle screen', angle:42, band:8,
@@ -133,6 +133,85 @@ function showMesh(nodes,elems,{grey=false, wire=false, field=null}={}){
 
 // ---------- composite winding (discrete course plan) ----------
 const windGroup=new THREE.Group(); scene.add(windGroup); windGroup.visible=false;
+// tape-band materials (TaniqWind-style silver composite tape, two shades for +/- hands)
+const towA=new THREE.MeshStandardMaterial({color:0xa8b0b8,metalness:0.35,roughness:0.45,side:THREE.DoubleSide});
+const towB=new THREE.MeshStandardMaterial({color:0x8f99a2,metalness:0.35,roughness:0.45,side:THREE.DoubleSide});
+const hoopM=new THREE.MeshStandardMaterial({color:0x7d8791,metalness:0.35,roughness:0.5,side:THREE.DoubleSide});
+
+function bestP(n){ if(n<=2) return 1; const t=Math.max(1,Math.round(n*0.381966));
+  const gcd=(a,b)=>b?gcd(b,a%b):a;
+  for(let d=0;d<n;d++){ for(const q of [t+d,t-d]) if(q>=1&&q<n&&gcd(q,n)===1) return q; } return 1; }
+
+// geodesic pass over the real meridian profile (Clairaut), with outward surface normals
+function pathSamples(C, hand, phi0, off){
+  const P=S.geom.profile, n=P.s.length, out=[]; let phi=phi0, started=false;
+  for(let i=0;i<n;i++){
+    const r=P.r[i];
+    if(r<=C*1.002){ if(started) break; continue; }      // between the two turnarounds only
+    if(started){
+      const ds=Math.hypot(P.r[i]-P.r[i-1],P.z[i]-P.z[i-1]);
+      const rm=Math.max(0.5*(P.r[i]+P.r[i-1]), C*1.002);
+      const sa=Math.min(C/rm,0.9995);
+      phi+=hand*(sa/Math.sqrt(1-sa*sa))*ds/rm;          // dphi/ds = tan(alpha)/r
+    }
+    started=true;
+    const i0=Math.max(0,i-1), i1=Math.min(n-1,i+1);
+    let tr=P.r[i1]-P.r[i0], tz=P.z[i1]-P.z[i0]; const tl=Math.hypot(tr,tz)||1; tr/=tl; tz/=tl;
+    let nr=tz, nz=-tr; if(nr<0){nr=-nr; nz=-nz;}        // outward in-plane normal
+    const R=r+off, cp=Math.cos(phi), sp=Math.sin(phi);
+    out.push({p:new THREE.Vector3(R*cp,R*sp,P.z[i]), n:new THREE.Vector3(nr*cp,nr*sp,nz)});
+  }
+  return out;
+}
+
+// flat tape ribbon: offset +/- half band width along (tangent x normal), lying on the surface
+function bandGeom(smp, width){
+  const n=smp.length, hw=width/2, pos=new Float32Array(n*6);
+  for(let i=0;i<n;i++){
+    const p=smp[i].p, prev=smp[Math.max(0,i-1)].p, next=smp[Math.min(n-1,i+1)].p;
+    const T=next.clone().sub(prev).normalize();
+    const side=new THREE.Vector3().crossVectors(T,smp[i].n).normalize().multiplyScalar(hw);
+    pos.set([p.x+side.x,p.y+side.y,p.z+side.z, p.x-side.x,p.y-side.y,p.z-side.z], i*6);
+  }
+  const idx=[]; for(let i=0;i<n-1;i++){const a=i*2; idx.push(a,a+1,a+2, a+1,a+3,a+2);}
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setIndex(idx); g.computeVertexNormals(); return g;
+}
+
+// full-coverage woven layup: every layer in the stack laid as tape bands on the mandrel
+function drawCoverage(){
+  clearGroup(windGroup);
+  const P=S.geom&&S.geom.profile; if(!P) return;
+  const ug=buildGeometry(S.geom.nodes,S.geom.elems);
+  windGroup.add(new THREE.Mesh(ug,new THREE.MeshLambertMaterial({color:0x3a434d,transparent:true,opacity:0.45,side:THREE.DoubleSide,flatShading:true})));
+  const Rmax=Math.max(...P.r);
+  let li=0;
+  for(const L of S.inputs.layers){
+    const off=0.6+li*1.3;                                // radial stagger so layers read
+    if(L.type==='hoop'){
+      const zs=[]; for(let i=0;i<P.r.length;i++) if(P.r[i]>0.995*Rmax) zs.push(P.z[i]);
+      if(zs.length>1){ const zmin=Math.min(...zs), zmax=Math.max(...zs), span=zmax-zmin;
+        const nb=Math.max(1,Math.ceil(span/L.band));
+        for(let k=0;k<nb;k++){
+          const g=new THREE.CylinderGeometry(Rmax+off,Rmax+off,span/nb*1.02,72,1,true);
+          g.rotateX(Math.PI/2);
+          const m=new THREE.Mesh(g,hoopM); m.position.z=zmin+(k+0.5)*span/nb; windGroup.add(m); } }
+    } else {
+      const a=L.angle*Math.PI/180, C=Rmax*Math.sin(a);
+      const nb=Math.max(1,Math.ceil(2*Math.PI*Rmax*Math.sin(a)/L.band));
+      const q=(S.selPattern&&S.selPattern.n===nb)?S.selPattern.p:bestP(nb);
+      for(let k=0;k<nb;k++){
+        const phi0=2*Math.PI*((k*q)%nb)/nb;              // p/n pattern phase advance
+        for(const hand of [1,-1]){
+          const smp=pathSamples(C,hand,phi0,off);
+          if(smp.length>3) windGroup.add(new THREE.Mesh(bandGeom(smp,L.band), hand>0?towA:towB));
+        }
+      }
+    }
+    li++;
+  }
+  fitCamera(ug);
+}
 function clearGroup(g){ while(g.children.length){const c=g.children.pop(); if(c.geometry)c.geometry.dispose(); if(c.material&&c.material.dispose)c.material.dispose();} }
 function drawWinding(){
   clearGroup(windGroup);
@@ -151,11 +230,15 @@ function drawWinding(){
 }
 function onStep(){
   const w=S.result&&S.result.winding;
-  const winding = (S.step==='winding' && w && w.available);
-  if(winding){ drawWinding(); windGroup.visible=true; if(meshObj)meshObj.visible=false; if(wireObj)wireObj.visible=false;
-    document.getElementById('vtitle').textContent='Composite winding — course plan';
-    document.getElementById('legend').classList.add('none'); }
-  else { windGroup.visible=false; if(meshObj)meshObj.visible=true; if(wireObj)wireObj.visible=true; }
+  if(S.step==='winding' && S.windView==='coverage' && S.geom && S.geom.profile){
+    drawCoverage(); windGroup.visible=true; if(meshObj)meshObj.visible=false; if(wireObj)wireObj.visible=false;
+    document.getElementById('vtitle').textContent='Coverage — fiber tows and layers on the mandrel';
+    document.getElementById('legend').classList.add('none');
+  } else if(S.step==='winding' && S.windView==='courses' && w && w.available){
+    drawWinding(); windGroup.visible=true; if(meshObj)meshObj.visible=false; if(wireObj)wireObj.visible=false;
+    document.getElementById('vtitle').textContent='Optimized winding — course plan';
+    document.getElementById('legend').classList.add('none');
+  } else { windGroup.visible=false; if(meshObj)meshObj.visible=true; if(wireObj)wireObj.visible=true; }
 }
 
 // ---------- UI ----------
@@ -204,7 +287,21 @@ function renderDetails(){
   } else if(S.step==='solution'){
     h=`<h4>Details — Solution</h4><div class="hint">Runs the real FEA, winding optimizer, and element-level CLT.</div><button class="go" id="btn-solve">Solve</button>`;
   } else if(S.step==='winding'){
-    h=`<h4>Details — Composite winding</h4>`;
+    h=`<h4>Details — Winding · tows on mandrel</h4>`;
+    h+=`<label>View</label><select id="windview"><option value="coverage"${S.windView==='coverage'?' selected':''}>Coverage bands (tape on mandrel)</option><option value="courses"${S.windView==='courses'?' selected':''}>Optimized course plan</option></select>`;
+    if(S.windView==='coverage'){
+      if(!S.geom) h+=`<div class="hint">Generate the mandrel first.</div>`;
+      else {
+        h+=`<button class="go" id="btn-patterns">Search patterns</button>`;
+        if(S.patterns){
+          h+=`<table class="ltable"><tr style="color:var(--muted)"><td>p</td><td>n</td><td>circuits</td><td>cov %</td><td>angle</td></tr>`;
+          S.patterns.forEach((pt,i)=>{ const on=S.selPattern&&S.selPattern.p===pt.p;
+            h+=`<tr data-pi="${i}" style="cursor:pointer${on?';color:#5dcaa5;font-weight:600':''}"><td>${pt.p}</td><td>${pt.n}</td><td>${pt.circuits}</td><td>${pt.coverage_pct}</td><td>${pt.angle_deg}°</td></tr>`; });
+          h+=`</table>`;
+        }
+        h+=`<div class="hint">Every layer in the Layers stack is laid as tape bands at the p/n pattern — the woven full-coverage layup. Optimize updates the helical angle.</div>`;
+      }
+    } else {
     const d=S.result&&S.result.winding_design;
     if(d){
       h+=`<div style="margin-bottom:6px">
@@ -242,6 +339,7 @@ function renderDetails(){
       <div class="hint" style="margin-top:8px"><span style="color:#1d9e75">━</span> clockwise &nbsp; <span style="color:#c065d0">━</span> counter-clockwise &nbsp; <span style="color:#d7a53a">◯</span> hoop</div>
       <div class="hint">Discrete course plan from the optimized winding — the planner's axisymmetric helical families + hoop rings (real counts), not a full circumferential weave.</div>`;
     } else h+=`<div class="hint">${w&&w.reason?w.reason:'Run the Solution step with mode = Optimize winding to generate the course plan.'}</div>`;
+    }
   } else if(S.step==='results'){
     h=`<h4>Details — Results</h4>`;
     if(S.result){ const f=Object.keys(S.result.fields);
@@ -267,6 +365,9 @@ function renderDetails(){
   const ah=document.getElementById('btn-addhel'); if(ah) ah.onclick=()=>{ S.inputs.layers.push({type:'helical',angle:30,band:6}); renderDetails(); };
   const ao=document.getElementById('btn-addhoop'); if(ao) ao.onclick=()=>{ S.inputs.layers.push({type:'hoop',band:6}); renderDetails(); };
   const bl=document.getElementById('btn-layers'); if(bl) bl.onclick=computeLayers;
+  const wv=document.getElementById('windview'); if(wv) wv.onchange=()=>{ S.windView=wv.value; renderDetails(); onStep(); };
+  const bp=document.getElementById('btn-patterns'); if(bp) bp.onclick=searchPatterns;
+  document.querySelectorAll('#details [data-pi]').forEach(el=>{ el.onclick=()=>{ S.selPattern=S.patterns[+el.dataset.pi]; renderDetails(); onStep(); }; });
   const dj=document.getElementById('btn-dljson'); if(dj) dj.onclick=()=>dlfile('tow_schedule.json',JSON.stringify(S.result.winding.schedule,null,1),'application/json');
   const dc=document.getElementById('btn-dlcsv'); if(dc) dc.onclick=()=>{ const rows=['course,hand,point,x_mm,y_mm,z_mm,winding_angle_deg'];
     S.result.winding.schedule.courses.forEach(c=>c.points.forEach((p,k)=>rows.push(`${c.id},${c.hand},${k},${p[0]},${p[1]},${p[2]},${c.angle_deg[k]}`)));
@@ -283,6 +384,13 @@ async function post(url,body){ const r=await fetch(API+url,{method:'POST',header
   const j=await r.json(); if(j.error) throw new Error(j.error); return j; }
 function dlfile(name,text,mime){ const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([text],{type:mime})); a.download=name; a.click(); }
+
+async function searchPatterns(){ setStatus('Searching winding patterns…');
+  try{ const L=S.inputs.layers.find(l=>l.type==='helical')||{angle:S.inputs.angle,band:S.inputs.band};
+    const j=await post('/api/patterns',{...S.inputs, angle:L.angle, band:L.band, coverage:1.0});
+    S.patterns=j.patterns; if(!S.selPattern||S.selPattern.n!==j.n_bands) S.selPattern=j.patterns[0];
+    renderDetails(); onStep(); setStatus(`Patterns for ${j.n_bands} bands @ ${j.angle_deg.toFixed(1)}° — pick a row.`);
+  }catch(e){ setStatus('Error: '+e.message); } }
 
 async function computeLayers(){ setStatus('Computing layer metrics…');
   try{ const j=await post('/api/layer_metrics',{...S.inputs});
@@ -319,6 +427,8 @@ async function solve(){ if(!S.geom){setStatus('Generate the mesh first.');return
     document.getElementById('gatechip').textContent=j.decision;
     setStatus(`Solved · FI_max ${j.fi_max.toFixed(3)} · min RF ${j.margins.min_reserve_factor.toFixed(2)} · ${j.decision}`);
     const w=j.winding; S.done.winding=!!(w&&w.available);
+    if(w&&w.available&&w.angle_mean){ const fh=S.inputs.layers.find(l=>l.type==='helical');
+      if(fh){ fh.angle=Math.round(w.angle_mean); S.patterns=null; S.selPattern=null; } }
     S.step=(w&&w.available)?'winding':'results'; renderSteps(); renderDetails(); onStep();
   }catch(e){ setStatus('Error: '+e.message); } spin(false); }
 
