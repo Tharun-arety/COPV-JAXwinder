@@ -224,6 +224,8 @@ def build_state(geom: GeometryConfig, material: MaterialConfig) -> dict[str, Any
         "geom": geom,
     }
     _STATE_CACHE[key] = bundle
+    while len(_STATE_CACHE) > 4:   # each bundle holds a mesh + jitted solver — bound memory
+        _STATE_CACHE.pop(next(iter(_STATE_CACHE)))
     return bundle
 
 

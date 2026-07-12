@@ -140,22 +140,34 @@ def ply_stresses(plies: list[Ply], eps0: np.ndarray, kappa: np.ndarray) -> list[
     return out
 
 
+def hashin_modes(sigma_11, sigma_22, tau_12, allow: MaterialAllowables) -> dict[str, np.ndarray]:
+    """Plane-stress Hashin failure indices per mode, vectorised (scalars or arrays).
+
+    Single source of truth for the plane-stress criterion — the scalar per-ply wrapper
+    (hashin_ply) and the element-level FEM post-processor (clt_fem) both use this, so
+    the formulas cannot drift apart. The JAX variant in physics.py stays separate
+    because it must remain autodiff-traceable."""
+    s11 = np.asarray(sigma_11, dtype=np.float64)
+    s22 = np.asarray(sigma_22, dtype=np.float64)
+    t12 = np.asarray(tau_12, dtype=np.float64)
+    xt, xc, yt, yc, s = allow.xt, allow.xc, allow.yt, allow.yc, allow.s
+    ft = np.where(s11 >= 0.0, (s11 / xt) ** 2 + (t12 / s) ** 2, 0.0)
+    fc = np.where(s11 < 0.0, (s11 / xc) ** 2, 0.0)
+    mt = np.where(s22 >= 0.0, (s22 / yt) ** 2 + (t12 / s) ** 2, 0.0)
+    mc_raw = (s22 / (2 * s)) ** 2 + ((yc / (2 * s)) ** 2 - 1.0) * (s22 / yc) + (t12 / s) ** 2
+    mc = np.where(s22 < 0.0, np.maximum(mc_raw, 0.0), 0.0)
+    fi = np.maximum(np.maximum(ft, fc), np.maximum(mt, mc))
+    return {"fiber_tension": ft, "fiber_compression": fc,
+            "matrix_tension": mt, "matrix_compression": mc, "failure_index": fi}
+
+
 def hashin_ply(sigma_11: float, sigma_22: float, tau_12: float,
                allow: MaterialAllowables) -> dict[str, float]:
     """Plane-stress Hashin failure indices for one ply (material coords)."""
-    xt, xc, yt, yc, s = allow.xt, allow.xc, allow.yt, allow.yc, allow.s
-    ft = (sigma_11 / xt) ** 2 + (tau_12 / s) ** 2 if sigma_11 >= 0 else 0.0
-    fc = (sigma_11 / xc) ** 2 if sigma_11 < 0 else 0.0
-    if sigma_22 >= 0:
-        mt = (sigma_22 / yt) ** 2 + (tau_12 / s) ** 2
-        mc = 0.0
-    else:
-        mt = 0.0
-        mc = ((sigma_22 / (2 * s)) ** 2 + ((yc / (2 * s)) ** 2 - 1.0) * (sigma_22 / yc) + (tau_12 / s) ** 2)
-    fi = max(ft, fc, mt, mc)
-    modes = {"fiber_tension": ft, "fiber_compression": fc, "matrix_tension": mt, "matrix_compression": mc}
-    dominant = max(modes, key=modes.get)
-    return {**modes, "failure_index": fi, "reserve_factor": (1.0 / np.sqrt(fi)) if fi > 1e-12 else np.inf,
+    m = {k: float(v) for k, v in hashin_modes(sigma_11, sigma_22, tau_12, allow).items()}
+    fi = m.pop("failure_index")
+    dominant = max(m, key=m.get)
+    return {**m, "failure_index": fi, "reserve_factor": (1.0 / np.sqrt(fi)) if fi > 1e-12 else np.inf,
             "dominant_mode": dominant}
 
 

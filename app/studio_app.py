@@ -16,6 +16,11 @@ Run:
 
 from __future__ import annotations
 
+import warnings
+
+warnings.warn("app.studio_app (trame GUI) is deprecated; use `python -m app.server` "
+              "(the workflow web app at http://localhost:8081).", DeprecationWarning, stacklevel=2)
+
 import asyncio
 import os
 import signal as _signal_mod

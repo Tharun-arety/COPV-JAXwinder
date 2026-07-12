@@ -14,6 +14,7 @@ main thread.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import signal as _sig
@@ -22,6 +23,21 @@ import threading as _thr
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+log = logging.getLogger("copv.server")
+MAX_BODY_BYTES = 5 * 1024 * 1024
+
+
+def _require(p: dict, *fields: str) -> None:
+    """Validate that fields are present and numeric; raise with an actionable message."""
+    bad = []
+    for f in fields:
+        try:
+            float(p[f])
+        except (KeyError, TypeError, ValueError):
+            bad.append(f)
+    if bad:
+        raise ValueError(f"missing or non-numeric field(s): {', '.join(bad)}")
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 _rs = _sig.signal
@@ -45,6 +61,8 @@ LOCK = _thr.Lock()
 
 
 def _geom(p: dict):
+    _require(p, "thickness", "opening", "dome_ratio", "radius",
+             *(("capacity",) if p.get("define_by") == "Capacity" else ("length",)))
     hmax = DENSITY.get(p.get("density", "Medium"), 28.0)
     common = dict(thickness=float(p["thickness"]), opening_radius=float(p["opening"]),
                   dome_height_ratio=float(p["dome_ratio"]), pressure=float(p.get("pressure", 6.85)))
@@ -220,6 +238,9 @@ def _winding(r, geom) -> dict:
 
 
 def api_solve(p: dict) -> dict:
+    _require(p, "xt", "xc", "yt", "yc", "s")
+    if p.get("mode") != "Optimize winding":
+        _require(p, "angle", "band")
     with LOCK:
         geom, _ = _geom(p)
         allow = MaterialAllowables(xt=float(p["xt"]), xc=float(p["xc"]), yt=float(p["yt"]),
@@ -323,8 +344,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0) or 0)
+        if n > MAX_BODY_BYTES:
+            self._json({"error": f"request body too large ({n} bytes; limit {MAX_BODY_BYTES})"}, 413)
+            return
         try:
-            body = json.loads(self.rfile.read(n) or b"{}")
+            try:
+                body = json.loads(self.rfile.read(n) or b"{}")
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"request body is not valid JSON: {exc}") from exc
+            log.info("POST %s", self.path)
             if self.path == "/api/geometry":
                 self._json(api_geometry(body))
             elif self.path == "/api/solve":
@@ -335,13 +363,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(api_patterns(body))
             else:
                 self._json({"error": "unknown endpoint"}, 404)
+        except ValueError as exc:            # bad input -> actionable 400, not a 500
+            log.warning("400 %s: %s", self.path, exc)
+            self._json({"error": str(exc)}, 400)
         except Exception as exc:
+            log.exception("500 %s", self.path)
             traceback.print_exc()
             self._json({"error": str(exc)}, 500)
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     port = int(os.environ.get("COPV_PORT", "8081"))
+    log.info("COPV Studio Pro web app -> http://localhost:%d", port)
     print(f"COPV Studio Pro web app -> http://localhost:{port}")
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 

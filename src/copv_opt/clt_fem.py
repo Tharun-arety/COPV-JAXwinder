@@ -18,19 +18,14 @@ import numpy as np
 
 import jax.numpy as jnp
 
-from copv_opt.clt import PlyMaterial, reduced_stiffness
+from copv_opt.clt import PlyMaterial, hashin_modes, reduced_stiffness
 from copv_opt.config import MaterialAllowables, MaterialConfig
 from copv_opt.physics import element_strain_stress, engineering_strain_to_tensor_field, rotate_stiffness_field
 
 
 def _hashin(s11, s22, t12, a: MaterialAllowables):
-    xt, xc, yt, yc, s = a.xt, a.xc, a.yt, a.yc, a.s
-    ft = np.where(s11 >= 0.0, (s11 / xt) ** 2 + (t12 / s) ** 2, 0.0)
-    fc = np.where(s11 < 0.0, (s11 / xc) ** 2, 0.0)
-    mt = np.where(s22 >= 0.0, (s22 / yt) ** 2 + (t12 / s) ** 2, 0.0)
-    mcr = (s22 / (2 * s)) ** 2 + ((yc / (2 * s)) ** 2 - 1.0) * (s22 / yc) + (t12 / s) ** 2
-    mc = np.where(s22 < 0.0, np.maximum(mcr, 0.0), 0.0)
-    return np.maximum(np.maximum(ft, fc), np.maximum(mt, mc))
+    # single-source criterion: delegate to clt.hashin_modes so formulas cannot drift
+    return hashin_modes(s11, s22, t12, a)["failure_index"]
 
 
 def _ply_stress(eps0: np.ndarray, theta_deg: np.ndarray, Q: np.ndarray):
