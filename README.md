@@ -16,6 +16,8 @@ A TaniqWind-Pro-style, left-to-right workflow: **Mandrel → Materials → Layer
 
 This runs a real Python backend (JAX shell FEA + gmsh/OpenCASCADE mesh) behind a Three.js browser front end — see [`app/README.md`](app/README.md) for every entry point (headless CLI, one-shot pipeline, project catalog, Abaqus/CalculiX export, calibration to coupon data).
 
+**Deploying:** the frontend is a static page (Vercel-ready via the committed `vercel.json`); the compute backend is a long-running server (Dockerfile included) — it cannot run as a serverless function (~1.4 GB of solver dependencies, 90 s solves). See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
 ---
 
 ## What's inside

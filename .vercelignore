@@ -1,0 +1,9 @@
+# Vercel hosts ONLY the static frontend (app/webapp). The Python compute backend
+# (JAX + gmsh, ~1.4 GB of dependencies, 90 s solves, stateful JIT cache) cannot run
+# as a serverless function — deploy it with the Dockerfile instead. See docs/DEPLOYMENT.md.
+*
+!app/
+app/*
+!app/webapp/
+!app/webapp/**
+!vercel.json

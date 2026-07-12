@@ -1,0 +1,12 @@
+.git/
+.github/
+outputs/
+docs/
+tests/
+app/demo/
+**/__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.vercelignore
+vercel.json

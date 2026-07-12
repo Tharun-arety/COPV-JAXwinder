@@ -379,8 +379,19 @@ function renderDetails(){
 // ---------- API ----------
 function spin(on,msg){document.getElementById('spin').classList.toggle('hide',!on); if(msg)document.getElementById('spinmsg').textContent=msg;}
 function setStatus(m){document.getElementById('statusmsg').textContent=m;}
-const API = /^https?:$/.test(location.protocol) ? '' : 'http://localhost:8081';
-async function post(url,body){ const r=await fetch(API+url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+const API = (()=>{                       // backend base URL: ?api=<url> once, then remembered
+  const q = new URLSearchParams(location.search).get('api');
+  if(q === 'reset') localStorage.removeItem('copv_api');
+  else if(q) localStorage.setItem('copv_api', q.replace(/\/+$/,''));
+  const saved = localStorage.getItem('copv_api');
+  if(saved) return saved;
+  return /^https?:$/.test(location.protocol) ? '' : 'http://localhost:8081';
+})();
+async function post(url,body){
+  let r;
+  try{ r = await fetch(API+url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }
+  catch(e){ throw new Error(`backend unreachable at ${API||location.origin} — start it with "python -m app.server", or point this page at a running backend: append ?api=<backend-url> to this page's address (use ?api=reset to forget it)`); }
+  if(!r.ok && r.status===404 && !API) throw new Error('this is a static deployment with no backend on this origin — append ?api=<backend-url> to the page address (e.g. ?api=http://localhost:8081 with the local server running)');
   const j=await r.json(); if(j.error) throw new Error(j.error); return j; }
 function dlfile(name,text,mime){ const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([text],{type:mime})); a.download=name; a.click(); }

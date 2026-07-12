@@ -375,9 +375,10 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     port = int(os.environ.get("COPV_PORT", "8081"))
-    log.info("COPV Studio Pro web app -> http://localhost:%d", port)
-    print(f"COPV Studio Pro web app -> http://localhost:{port}")
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    host = os.environ.get("COPV_HOST", "127.0.0.1")   # set COPV_HOST=0.0.0.0 in a container
+    log.info("COPV Studio Pro web app -> http://%s:%d", host, port)
+    print(f"COPV Studio Pro web app -> http://{'localhost' if host == '127.0.0.1' else host}:{port}")
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
